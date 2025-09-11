@@ -5,11 +5,11 @@ from esphome.const import CONF_UART_ID, CONF_UPDATE_INTERVAL
 
 DEPENDENCIES = ['uart']
 
-wmz_mbus_ns = cg.esphome_ns.namespace('wmz_mbus_custom')
-WMZMbusCustom = wmz_mbus_ns.class_('WMZMbusCustom', cg.Component)
+ultramaxx_ns = cg.esphome_ns.namespace('ultramaxx')
+UltramaxxComponent = ultramaxx_ns.class_('UltramaxxComponent', cg.Component)
 
 CONFIG_SCHEMA = cv.Schema({
-    cv.GenerateID(): cv.declare_id(WMZMbusCustom),
+    cv.GenerateID(): cv.declare_id(UltramaxxComponent),
     cv.Required(CONF_UART_ID): cv.use_id(uart.UARTComponent),
     cv.Optional(CONF_UPDATE_INTERVAL, default="86400s"): cv.update_interval,
     cv.Optional("heat_energy_kwh"): sensor.sensor_schema(),
