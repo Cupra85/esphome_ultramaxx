@@ -1,9 +1,9 @@
 #include "wmz_mbus_custom.h"
 #include "esphome/core/log.h"
 #include <cstring>
-#include "esp_timer.h"        // <-- für esp_timer_get_time()
+#include "esp_timer.h"        // für esp_timer_get_time()
 #include "freertos/FreeRTOS.h"
-#include "freertos/task.h"    // <-- für vTaskDelay()
+#include "freertos/task.h"    // für vTaskDelay()
 
 namespace esphome {
 namespace wmz_mbus_custom {
@@ -45,12 +45,12 @@ void WMZComponent::wake_up() {
   uint8_t block[64];
   memset(block, 0x55, sizeof(block));
 
-  uint64_t start = esp_timer_get_time();  // µs seit Boot
+  uint64_t start = esp_timer_get_time();  // Mikrosekunden seit Boot
   while ((esp_timer_get_time() - start) / 1000 < 2200) {
     this->uart_write(block, sizeof(block), 0);
   }
 
-  // Ruhe >= 33 Bitzeiten (ca. 14 ms) → hier 100 ms
+  // Ruhe >= 33 Bitzeiten (~14ms) → 100ms Pause
   vTaskDelay(pdMS_TO_TICKS(100));
 }
 
@@ -77,7 +77,7 @@ void WMZComponent::send_req_ud2() {
 std::vector<uint8_t> WMZComponent::read_frame(uint32_t window_ms) {
   std::vector<uint8_t> out;
   out.reserve(512);
-  uint64_t t0 = esp_timer_get_time();  // µs
+  uint64_t t0 = esp_timer_get_time();  // Mikrosekunden
 
   uint8_t tmp[256];
   while ((esp_timer_get_time() - t0) / 1000 < window_ms) {
@@ -105,12 +105,12 @@ void WMZComponent::parse_and_publish(const std::vector<uint8_t> &buf) {
   };
 
   uint32_t v;
-  if (find_vif(0x06, v)) heat_energy_kwh_.publish_state(v / 1000.0f);
-  if (find_vif(0x13, v)) volume_m3_.publish_state(v / 1000.0f);
-  if (find_vif(0x5B, v)) flow_temp_c_.publish_state(v / 100.0f);
-  if (find_vif(0x5F, v)) return_temp_c_.publish_state(v / 100.0f);
-  if (find_vif(0x2B, v)) power_w_.publish_state(v);
-  if (find_vif(0x3B, v)) flow_lh_.publish_state(v);
+  if (find_vif(0x06, v)) heat_energy_kwh_->publish_state(v / 1000.0f);
+  if (find_vif(0x13, v)) volume_m3_->publish_state(v / 1000.0f);
+  if (find_vif(0x5B, v)) flow_temp_c_->publish_state(v / 100.0f);
+  if (find_vif(0x5F, v)) return_temp_c_->publish_state(v / 100.0f);
+  if (find_vif(0x2B, v)) power_w_->publish_state(v);
+  if (find_vif(0x3B, v)) flow_lh_->publish_state(v);
 }
 
 void WMZComponent::update() {
@@ -120,7 +120,7 @@ void WMZComponent::update() {
   send_req_ud2();
   auto data = read_frame(1200);
   if (data.empty()) {
-    ESP_LOGW(TAG, "Keine Antwort");
+    ESP_LOGW(TAG, "Keine Antwort vom Zähler");
     return;
   }
   parse_and_publish(data);
