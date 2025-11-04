@@ -10,7 +10,7 @@ namespace wmz_mbus_custom {
 
 class WMZComponent : public PollingComponent {
  public:
-  WMZComponent(int tx_pin, int rx_pin, uint32_t update_interval_ms);
+  WMZComponent(int tx_pin, int rx_pin, bool invert_lines, uint32_t update_interval_ms);
 
   void setup() override;
   void update() override;
@@ -23,24 +23,20 @@ class WMZComponent : public PollingComponent {
   sensor::Sensor *return_temp_c_   = new sensor::Sensor();
   sensor::Sensor *power_w_         = new sensor::Sensor();
   sensor::Sensor *flow_lh_         = new sensor::Sensor();
-
-  // Debug-Textsensor (Rohdaten)
   text_sensor::TextSensor *debug_frame_ = new text_sensor::TextSensor();
 
  protected:
   int tx_pin_;
   int rx_pin_;
+  bool invert_lines_;
   uart_port_t uart_num_ = UART_NUM_1;
 
-  // UART helper
   void uart_configure(int baud, uart_parity_t parity);
   void uart_write(const uint8_t *data, size_t len, uint32_t wait_ms = 100);
   int  uart_read(uint8_t *data, size_t maxlen, uint32_t timeout_ms);
-
-  // Kommunikationslogik
-  void wake_up();                 // 0x55 für 2.2s @ 2400 Bd 8N1
-  bool send_init_expect_e5();     // SND_NKE → E5
-  void send_req_ud2();            // REQ_UD2 senden
+  void wake_up();
+  bool send_init_expect_e5();
+  void send_req_ud2();
   std::vector<uint8_t> read_frame(uint32_t window_ms);
   void parse_and_publish(const std::vector<uint8_t> &buf);
 
