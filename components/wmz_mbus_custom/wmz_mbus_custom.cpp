@@ -1,9 +1,9 @@
 #include "wmz_mbus_custom.h"
 #include "esphome/core/log.h"
 #include <cstring>
-#include "esp_timer.h"        // für esp_timer_get_time()
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/task.h"    // für vTaskDelay()
+#include "freertos/task.h"
 
 namespace esphome {
 namespace wmz_mbus_custom {
@@ -13,7 +13,9 @@ static const char *const TAG = "wmz";
 WMZComponent::WMZComponent(int tx_pin, int rx_pin, uint32_t update_interval_ms)
     : PollingComponent(update_interval_ms), tx_pin_(tx_pin), rx_pin_(rx_pin) {}
 
-void WMZComponent::setup() {}
+void WMZComponent::setup() {
+  ESP_LOGI(TAG, "WMZComponent setup: TX=%d RX=%d", tx_pin_, rx_pin_);
+}
 
 void WMZComponent::uart_configure(int baud, uart_parity_t parity) {
   uart_driver_delete(uart_num_);
@@ -39,19 +41,18 @@ int WMZComponent::uart_read(uint8_t *data, size_t maxlen, uint32_t timeout_ms) {
   return uart_read_bytes(uart_num_, data, maxlen, pdMS_TO_TICKS(timeout_ms));
 }
 
-// Wake-Up: 0x55 für ~2.2s bei 2400 8N1, danach ~100ms Ruhe
+// Wake-Up: 0x55 für 2,2 s @ 2400 8N1, dann 100 ms Ruhe
 void WMZComponent::wake_up() {
   this->uart_configure(2400, UART_PARITY_DISABLE);
   uint8_t block[64];
   memset(block, 0x55, sizeof(block));
 
-  uint64_t start = esp_timer_get_time();  // Mikrosekunden seit Boot
+  uint64_t start = esp_timer_get_time();  // µs seit Boot
   while ((esp_timer_get_time() - start) / 1000 < 2200) {
     this->uart_write(block, sizeof(block), 0);
   }
 
-  // Ruhe >= 33 Bitzeiten (~14ms) → 100ms Pause
-  vTaskDelay(pdMS_TO_TICKS(100));
+  vTaskDelay(pdMS_TO_TICKS(100));  // 100 ms Ruhe
 }
 
 bool WMZComponent::send_init_expect_e5() {
@@ -77,7 +78,7 @@ void WMZComponent::send_req_ud2() {
 std::vector<uint8_t> WMZComponent::read_frame(uint32_t window_ms) {
   std::vector<uint8_t> out;
   out.reserve(512);
-  uint64_t t0 = esp_timer_get_time();  // Mikrosekunden
+  uint64_t t0 = esp_timer_get_time();  // µs
 
   uint8_t tmp[256];
   while ((esp_timer_get_time() - t0) / 1000 < window_ms) {
@@ -119,33 +120,27 @@ void WMZComponent::update() {
   send_init_expect_e5();
   send_req_ud2();
   auto data = read_frame(1200);
+
   if (data.empty()) {
     ESP_LOGW(TAG, "Keine Antwort vom Zähler");
+    if (debug_frame_ != nullptr)
+      debug_frame_->publish_state("No data");
     return;
   }
+
+  // Hexdump erzeugen
+  std::string hex;
+  for (uint8_t b : data) {
+    char buf[4];
+    sprintf(buf, "%02X ", b);
+    hex += buf;
+  }
+
+  if (debug_frame_ != nullptr)
+    debug_frame_->publish_state(hex);
+
   parse_and_publish(data);
 }
-auto data = read_frame(1200);
-if (data.empty()) {
-  ESP_LOGW(TAG, "Keine Antwort vom Zähler");
-  if (debug_frame_ != nullptr)
-    debug_frame_->publish_state("No data");
-  return;
-}
-
-// Hexdump erzeugen
-std::string hex;
-for (uint8_t b : data) {
-  char buf[4];
-  sprintf(buf, "%02X ", b);
-  hex += buf;
-}
-
-if (debug_frame_ != nullptr)
-  debug_frame_->publish_state(hex);
-
-parse_and_publish(data);
-
 
 }  // namespace wmz_mbus_custom
 }  // namespace esphome
