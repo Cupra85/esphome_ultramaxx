@@ -10,11 +10,14 @@ namespace wmz_mbus_custom {
 
 static const char *const TAG = "wmz";
 
-WMZComponent::WMZComponent(int tx_pin, int rx_pin, uint32_t update_interval_ms)
-    : PollingComponent(update_interval_ms), tx_pin_(tx_pin), rx_pin_(rx_pin) {}
+WMZComponent::WMZComponent(int tx_pin, int rx_pin, bool invert_lines, uint32_t update_interval_ms)
+    : PollingComponent(update_interval_ms),
+      tx_pin_(tx_pin),
+      rx_pin_(rx_pin),
+      invert_lines_(invert_lines) {}
 
 void WMZComponent::setup() {
-  ESP_LOGI(TAG, "WMZComponent setup: TX=%d RX=%d", tx_pin_, rx_pin_);
+  ESP_LOGI(TAG, "WMZ setup: TX=%d RX=%d invert=%s", tx_pin_, rx_pin_, invert_lines_ ? "true" : "false");
 }
 
 void WMZComponent::uart_configure(int baud, uart_parity_t parity) {
@@ -28,6 +31,8 @@ void WMZComponent::uart_configure(int baud, uart_parity_t parity) {
   cfg.source_clk = UART_SCLK_DEFAULT;
   uart_param_config(uart_num_, &cfg);
   uart_set_pin(uart_num_, tx_pin_, rx_pin_, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+  if (invert_lines_)
+    uart_set_line_inverse(uart_num_, UART_SIGNAL_RXD_INV | UART_SIGNAL_TXD_INV);
   uart_driver_install(uart_num_, 4096, 4096, 0, NULL, 0);
 }
 
@@ -41,27 +46,22 @@ int WMZComponent::uart_read(uint8_t *data, size_t maxlen, uint32_t timeout_ms) {
   return uart_read_bytes(uart_num_, data, maxlen, pdMS_TO_TICKS(timeout_ms));
 }
 
-// Wake-Up: 0x55 für 2,2 s @ 2400 8N1, dann 100 ms Ruhe
 void WMZComponent::wake_up() {
-  this->uart_configure(2400, UART_PARITY_DISABLE);
-  uint8_t block[64];
-  memset(block, 0x55, sizeof(block));
-
-  uint64_t start = esp_timer_get_time();  // µs seit Boot
-  while ((esp_timer_get_time() - start) / 1000 < 2200) {
-    this->uart_write(block, sizeof(block), 0);
-  }
-
-  vTaskDelay(pdMS_TO_TICKS(100));  // 100 ms Ruhe
+  uart_configure(2400, UART_PARITY_DISABLE);
+  uint8_t blk[64];
+  memset(blk, 0x55, sizeof(blk));
+  uint64_t start = esp_timer_get_time();
+  while ((esp_timer_get_time() - start) / 1000 < 2200)
+    uart_write(blk, sizeof(blk), 0);
+  vTaskDelay(pdMS_TO_TICKS(100));
 }
 
 bool WMZComponent::send_init_expect_e5() {
-  this->uart_configure(2400, UART_PARITY_EVEN);
+  uart_configure(2400, UART_PARITY_EVEN);
   const uint8_t snd_nke[] = {0x10, 0x40, 0x00, 0x40, 0x16};
-  this->uart_write(snd_nke, sizeof(snd_nke), 50);
-
+  uart_write(snd_nke, sizeof(snd_nke), 50);
   uint8_t b;
-  int n = this->uart_read(&b, 1, 150);
+  int n = uart_read(&b, 1, 150);
   if (n == 1 && b == 0xE5) {
     ESP_LOGI(TAG, "ACK E5 erhalten");
     return true;
@@ -72,39 +72,33 @@ bool WMZComponent::send_init_expect_e5() {
 
 void WMZComponent::send_req_ud2() {
   const uint8_t req_ud2[] = {0x10, 0x5B, 0xFE, 0x59, 0x16};
-  this->uart_write(req_ud2, sizeof(req_ud2), 50);
+  uart_write(req_ud2, sizeof(req_ud2), 50);
 }
 
 std::vector<uint8_t> WMZComponent::read_frame(uint32_t window_ms) {
   std::vector<uint8_t> out;
   out.reserve(512);
-  uint64_t t0 = esp_timer_get_time();  // µs
-
+  uint64_t t0 = esp_timer_get_time();
   uint8_t tmp[256];
   while ((esp_timer_get_time() - t0) / 1000 < window_ms) {
-    int n = this->uart_read(tmp, sizeof(tmp), 50);
+    int n = uart_read(tmp, sizeof(tmp), 50);
     if (n > 0) out.insert(out.end(), tmp, tmp + n);
   }
-
   if (!out.empty())
-    ESP_LOGD(TAG, "RX %u Bytes", (unsigned) out.size());
-
+    ESP_LOGD(TAG, "RX %u Bytes", (unsigned)out.size());
   return out;
 }
 
 void WMZComponent::parse_and_publish(const std::vector<uint8_t> &buf) {
   if (buf.empty()) return;
-
   auto find_vif = [&](uint8_t vif, uint32_t &val) -> bool {
-    for (size_t i = 0; i + 5 < buf.size(); i++) {
+    for (size_t i = 0; i + 5 < buf.size(); i++)
       if (buf[i] == 0x04 && buf[i + 1] == vif) {
         val = u32le(&buf[i + 2]);
         return true;
       }
-    }
     return false;
   };
-
   uint32_t v;
   if (find_vif(0x06, v)) heat_energy_kwh_->publish_state(v / 1000.0f);
   if (find_vif(0x13, v)) volume_m3_->publish_state(v / 1000.0f);
@@ -120,25 +114,18 @@ void WMZComponent::update() {
   send_init_expect_e5();
   send_req_ud2();
   auto data = read_frame(1200);
-
   if (data.empty()) {
     ESP_LOGW(TAG, "Keine Antwort vom Zähler");
-    if (debug_frame_ != nullptr)
-      debug_frame_->publish_state("No data");
+    if (debug_frame_) debug_frame_->publish_state("No data");
     return;
   }
-
-  // Hexdump erzeugen
   std::string hex;
   for (uint8_t b : data) {
     char buf[4];
     sprintf(buf, "%02X ", b);
     hex += buf;
   }
-
-  if (debug_frame_ != nullptr)
-    debug_frame_->publish_state(hex);
-
+  if (debug_frame_) debug_frame_->publish_state(hex);
   parse_and_publish(data);
 }
 
