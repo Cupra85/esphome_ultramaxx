@@ -125,6 +125,27 @@ void WMZComponent::update() {
   }
   parse_and_publish(data);
 }
+auto data = read_frame(1200);
+if (data.empty()) {
+  ESP_LOGW(TAG, "Keine Antwort vom Zähler");
+  if (debug_frame_ != nullptr)
+    debug_frame_->publish_state("No data");
+  return;
+}
+
+// Hexdump erzeugen
+std::string hex;
+for (uint8_t b : data) {
+  char buf[4];
+  sprintf(buf, "%02X ", b);
+  hex += buf;
+}
+
+if (debug_frame_ != nullptr)
+  debug_frame_->publish_state(hex);
+
+parse_and_publish(data);
+
 
 }  // namespace wmz_mbus_custom
 }  // namespace esphome
