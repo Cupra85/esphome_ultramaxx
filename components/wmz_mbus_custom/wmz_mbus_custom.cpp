@@ -1,6 +1,9 @@
 #include "wmz_mbus_custom.h"
 #include "esphome/core/log.h"
 #include <cstring>
+#include "esp_timer.h"        // <-- für esp_timer_get_time()
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"    // <-- für vTaskDelay()
 
 namespace esphome {
 namespace wmz_mbus_custom {
@@ -36,48 +39,61 @@ int WMZComponent::uart_read(uint8_t *data, size_t maxlen, uint32_t timeout_ms) {
   return uart_read_bytes(uart_num_, data, maxlen, pdMS_TO_TICKS(timeout_ms));
 }
 
+// Wake-Up: 0x55 für ~2.2s bei 2400 8N1, danach ~100ms Ruhe
 void WMZComponent::wake_up() {
-  uart_configure(2400, UART_PARITY_DISABLE);
-  uint8_t blk[64];
-  memset(blk, 0x55, sizeof(blk));
-  uint32_t start = millis();
-  while (millis() - start < 2200) uart_write(blk, sizeof(blk), 0);
-  delay(100);
+  this->uart_configure(2400, UART_PARITY_DISABLE);
+  uint8_t block[64];
+  memset(block, 0x55, sizeof(block));
+
+  uint64_t start = esp_timer_get_time();  // µs seit Boot
+  while ((esp_timer_get_time() - start) / 1000 < 2200) {
+    this->uart_write(block, sizeof(block), 0);
+  }
+
+  // Ruhe >= 33 Bitzeiten (ca. 14 ms) → hier 100 ms
+  vTaskDelay(pdMS_TO_TICKS(100));
 }
 
 bool WMZComponent::send_init_expect_e5() {
-  uart_configure(2400, UART_PARITY_EVEN);
+  this->uart_configure(2400, UART_PARITY_EVEN);
   const uint8_t snd_nke[] = {0x10, 0x40, 0x00, 0x40, 0x16};
-  uart_write(snd_nke, sizeof(snd_nke), 50);
+  this->uart_write(snd_nke, sizeof(snd_nke), 50);
+
   uint8_t b;
-  int n = uart_read(&b, 1, 150);
+  int n = this->uart_read(&b, 1, 150);
   if (n == 1 && b == 0xE5) {
     ESP_LOGI(TAG, "ACK E5 erhalten");
     return true;
   }
-  ESP_LOGW(TAG, "Kein E5-ACK");
+  ESP_LOGW(TAG, "Kein E5-ACK auf SND_NKE");
   return false;
 }
 
 void WMZComponent::send_req_ud2() {
   const uint8_t req_ud2[] = {0x10, 0x5B, 0xFE, 0x59, 0x16};
-  uart_write(req_ud2, sizeof(req_ud2), 50);
+  this->uart_write(req_ud2, sizeof(req_ud2), 50);
 }
 
 std::vector<uint8_t> WMZComponent::read_frame(uint32_t window_ms) {
   std::vector<uint8_t> out;
   out.reserve(512);
-  uint32_t t0 = millis();
-  uint8_t buf[256];
-  while (millis() - t0 < window_ms) {
-    int n = uart_read(buf, sizeof(buf), 50);
-    if (n > 0) out.insert(out.end(), buf, buf + n);
+  uint64_t t0 = esp_timer_get_time();  // µs
+
+  uint8_t tmp[256];
+  while ((esp_timer_get_time() - t0) / 1000 < window_ms) {
+    int n = this->uart_read(tmp, sizeof(tmp), 50);
+    if (n > 0) out.insert(out.end(), tmp, tmp + n);
   }
+
+  if (!out.empty())
+    ESP_LOGD(TAG, "RX %u Bytes", (unsigned) out.size());
+
   return out;
 }
 
 void WMZComponent::parse_and_publish(const std::vector<uint8_t> &buf) {
   if (buf.empty()) return;
+
   auto find_vif = [&](uint8_t vif, uint32_t &val) -> bool {
     for (size_t i = 0; i + 5 < buf.size(); i++) {
       if (buf[i] == 0x04 && buf[i + 1] == vif) {
