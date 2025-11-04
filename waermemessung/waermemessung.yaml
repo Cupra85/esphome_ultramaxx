@@ -1,0 +1,45 @@
+esphome:
+  name: waermemessung
+  min_version: 2024.6.0
+
+esp32:
+  board: esp32-c6-devkitc-1
+  variant: ESP32C6
+  framework:
+    type: esp-idf
+
+logger:
+  level: DEBUG
+  baud_rate: 0
+
+api:
+ota:
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+external_components:
+  - source: file://components
+
+wmz_mbus_custom:
+  tx_pin: 20
+  rx_pin: 21
+  update_interval: 60s
+  heat_energy_kwh:
+    name: "WMZ Wärmeenergie"
+    unit_of_measurement: kWh
+  volume_m3:
+    name: "WMZ Volumen"
+    unit_of_measurement: m³
+  flow_temp_c:
+    name: "WMZ Vorlauftemperatur"
+    unit_of_measurement: °C
+  return_temp_c:
+    name: "WMZ Rücklauftemperatur"
+    unit_of_measurement: °C
+  power_w:
+    name: "WMZ Leistung"
+    unit_of_measurement: W
+  flow_lh:
+    name: "WMZ Durchfluss"
+    unit_of_measurement: "l/h"
