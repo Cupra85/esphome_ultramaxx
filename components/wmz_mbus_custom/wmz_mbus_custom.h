@@ -3,6 +3,10 @@
 #include "esphome/components/sensor/sensor.h"
 #include <driver/uart.h>
 #include <vector>
+#include "esphome/components/text_sensor/text_sensor.h"
+
+sensor::TextSensor *debug_frame_ = new sensor::TextSensor();
+
 
 namespace esphome {
 namespace wmz_mbus_custom {
