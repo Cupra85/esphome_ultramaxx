@@ -17,6 +17,7 @@ enum UMState {
 static UMState state = UM_IDLE;
 
 static uint32_t state_ts = 0;
+static uint32_t wake_start = 0;
 
 void UltraMaXXComponent::setup() {
   ESP_LOGI(TAG, "UltraMaXX component started");
@@ -36,18 +37,30 @@ void UltraMaXXComponent::loop() {
     uart_set_baudrate(UART_NUM_1, 2400);
     uart_set_parity(UART_NUM_1, UART_PARITY_DISABLE); // 8N1
 
-    // ⭐ Wakeup BLOCK senden (wie Script)
-    static uint8_t wake[532];
-    for(int i=0;i<532;i++) wake[i]=0x55;
-
-    this->write_array(wake, sizeof(wake));
-
-    state = UM_WAIT;
-    state_ts = now;
+    wake_start = now;
+    state = UM_WAKEUP;
   }
 
   // ------------------------------------------------
-  // Pause ~100ms
+  // Wakeup 2.2 Sekunden (non blocking!)
+  // ------------------------------------------------
+  if (state == UM_WAKEUP) {
+
+    uint8_t b = 0x55;
+    this->write_array(&b,1);
+
+    // ⭐ WICHTIG: Scheduler freigeben
+    yield();
+
+    if (now - wake_start > 2200) {
+      ESP_LOGI(TAG, "Wakeup end");
+      state = UM_WAIT;
+      state_ts = now;
+    }
+  }
+
+  // ------------------------------------------------
+  // Pause
   // ------------------------------------------------
   if (state == UM_WAIT && now - state_ts > 100) {
 
@@ -59,7 +72,7 @@ void UltraMaXXComponent::loop() {
   }
 
   // ------------------------------------------------
-  // REQ_UD2 senden
+  // REQ_UD2
   // ------------------------------------------------
   if (state == UM_REQ) {
 
