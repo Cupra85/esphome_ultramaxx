@@ -26,11 +26,26 @@ static uart_port_t uart_port_used;
 void UltraMaXXComponent::setup() {
   ESP_LOGI(TAG, "UltraMaXX component started");
 
-  // ⭐ UART Port vom ESPHome Parent holen
   auto *p = reinterpret_cast<uart::ESP32UartComponent *>(this->get_parent());
   uart_port_used = (uart_port_t)p->get_uart_num();
 
-  ESP_LOGI(TAG, "Using UART_NUM_%d (pins kommen aus YAML!)", (int)uart_port_used);
+  ESP_LOGI(TAG, "Using UART_NUM_%d", (int)uart_port_used);
+}
+
+//
+// ⭐ Wird automatisch alle update_interval Sekunden aufgerufen!
+//
+void UltraMaXXComponent::update() {
+
+  ESP_LOGI(TAG, "=== READ START ===");
+
+  uart_set_baudrate(uart_port_used, 2400);
+  uart_set_parity(uart_port_used, UART_PARITY_DISABLE);
+
+  wake_start = millis();
+  last_send = 0;
+
+  state = UM_WAKEUP;
 }
 
 void UltraMaXXComponent::loop() {
@@ -38,22 +53,7 @@ void UltraMaXXComponent::loop() {
   uint32_t now = millis();
 
   // ------------------------------------------------
-  // Start Zyklus
-  // ------------------------------------------------
-  if (state == UM_IDLE && now - state_ts > 10000) {
-
-    ESP_LOGI(TAG, "Wakeup start (2400 8N1)");
-
-    uart_set_baudrate(uart_port_used, 2400);
-    uart_set_parity(uart_port_used, UART_PARITY_DISABLE);
-
-    wake_start = now;
-    last_send = 0;
-    state = UM_WAKEUP;
-  }
-
-  // ------------------------------------------------
-  // Wakeup 0x55 ~2.2s
+  // Wakeup senden (~2.2s)
   // ------------------------------------------------
   if (state == UM_WAKEUP) {
 
@@ -83,7 +83,7 @@ void UltraMaXXComponent::loop() {
   }
 
   // ------------------------------------------------
-  // REQ_UD2
+  // REQ_UD2 senden
   // ------------------------------------------------
   if (state == UM_REQ) {
 
@@ -110,7 +110,6 @@ void UltraMaXXComponent::loop() {
 
     if (now - state_ts > 2000) {
       state = UM_IDLE;
-      state_ts = now;
     }
   }
 }
