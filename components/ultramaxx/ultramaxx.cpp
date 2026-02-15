@@ -83,12 +83,18 @@ void UltraMaXXComponent::loop() {
   // RX lesen
   if (state == UM_RX) {
 
-    while (available()) {
-      uint8_t c;
-      if (read_byte(&c)) {
-        ESP_LOGI(TAG, "RX: 0x%02X", c);
-      }
+  int count = available();
+  if (count > 0) {
+    ESP_LOGI(TAG, "RX available bytes: %d", count);
+  }
+
+  while (available()) {
+    uint8_t c;
+    if (read_byte(&c)) {
+      ESP_LOGI(TAG, "RX: 0x%02X", c);
     }
+  }
+
 
     if (now - state_ts > 2000) {
       state = UM_IDLE;
