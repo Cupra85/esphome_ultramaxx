@@ -1,64 +1,49 @@
-#include "ultramaxx.h"
-
-namespace esphome {
-namespace ultramaxx {
-
-static const char *const TAG = "ultramaxx";
-
-void UltraMaXXComponent::setup() {
-  ESP_LOGI(TAG, "UltraMaXX component started");
-}
-
-void UltraMaXXComponent::send_wakeup_() {
-  // 2400 8N1 Wakeup
-  uart_set_parity(UART_NUM_1, UART_PARITY_DISABLE);
-
-  uint8_t wake = 0x55;
-
-  for (int i = 0; i < 360; i++) {  // ~3 Sekunden
-    this->write_array(&wake, 1);
-    delay(8);
-  }
-
-  delay(234);
-
-  // zurück auf 8E1
-  uart_set_parity(UART_NUM_1, UART_PARITY_EVEN);
-}
-
-void UltraMaXXComponent::send_init_frame_() {
-  // CI=A6 Init Frame aus Thread #8009682
-  uint8_t snd_ud[] = {
-      0x68, 0x03, 0x03, 0x68,
-      0x53, 0xFE, 0xA6,
-      0xF7,
-      0x16};
-
-  this->write_array(snd_ud, sizeof(snd_ud));
-
-  ESP_LOGI(TAG, "SND_UD Init gesendet");
-}
-
 void UltraMaXXComponent::loop() {
-  if (millis() - last_wakeup_ > 10000) {
-    last_wakeup_ = millis();
+  static uint32_t last_run = 0;
+  static uint32_t wakeup_start = 0;
+  static int wakeup_count = 0;
+  static bool waking = false;
 
+  // alle 10 Sekunden neuen Zyklus starten
+  if (!waking && millis() - last_run > 10000) {
     ESP_LOGI(TAG, "Wakeup start");
 
-    send_wakeup_();
-    send_init_frame_();
+    uart_set_parity(UART_NUM_1, UART_PARITY_DISABLE);
 
-    waiting_for_frame_ = true;
+    wakeup_start = millis();
+    wakeup_count = 0;
+    waking = true;
+    last_run = millis();
   }
 
-  // RX lesen (non-blocking!)
+  // nicht-blockierender Wakeup
+  if (waking) {
+    if (wakeup_count < 360) {
+      uint8_t wake = 0x55;
+      this->write_array(&wake, 1);
+      wakeup_count++;
+      delay(1);   // mini pause erlaubt scheduler
+    } else {
+      uart_set_parity(UART_NUM_1, UART_PARITY_EVEN);
+
+      uint8_t snd_ud[] = {
+          0x68, 0x03, 0x03, 0x68,
+          0x53, 0xFE, 0xA6,
+          0xF7,
+          0x16};
+
+      this->write_array(snd_ud, sizeof(snd_ud));
+      ESP_LOGI(TAG, "SND_UD Init gesendet");
+
+      waking = false;
+    }
+  }
+
+  // RX lesen (läuft jetzt parallel!)
   while (available()) {
     uint8_t c;
     if (read_byte(&c)) {
-      ESP_LOGD(TAG, "available=%d", this->available());
+      ESP_LOGD(TAG, "RX byte: 0x%02X", c);
     }
   }
 }
-
-}  // namespace ultramaxx
-}  // namespace esphome
