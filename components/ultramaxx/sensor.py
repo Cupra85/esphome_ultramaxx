@@ -12,7 +12,8 @@ UltraMaXXComponent = ultramaxx_ns.class_(
 
 CONF_UART_ID = "uart_id"
 
-CONFIG_SCHEMA = cv.Schema(
+# ⭐ WICHTIG: PLATFORM_SCHEMA statt CONFIG_SCHEMA
+PLATFORM_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(UltraMaXXComponent),
         cv.Required(CONF_UART_ID): cv.use_id(uart.UARTComponent),
@@ -26,7 +27,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("temp_diff"): sensor.sensor_schema(unit_of_measurement="°C"),
         cv.Optional("meter_time"): text_sensor.text_sensor_schema(),
     }
-).extend(cv.polling_component_schema("20s"))
+).extend(cv.polling_component_schema("20s")).extend(sensor.PLATFORM_SCHEMA)
 
 
 async def to_code(config):
@@ -36,7 +37,7 @@ async def to_code(config):
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
 
-    def add_sensor(key, fn):
+    async def add_sensor(key, fn):
         if key in config:
             sens = await sensor.new_sensor(config[key])
             cg.add(fn(sens))
