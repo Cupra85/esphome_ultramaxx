@@ -9,7 +9,7 @@ enum UMState {
   UM_IDLE,
   UM_WAKEUP,
   UM_WAIT,
-  UM_REQ,
+  UM_SEND,
   UM_RX
 };
 
@@ -27,6 +27,7 @@ void UltraMaXXComponent::update() {
 
   ESP_LOGI(TAG, "=== READ START ===");
 
+  // Wakeup Mode 8N1
   this->parent_->set_baud_rate(2400);
   this->parent_->set_parity(uart::UART_CONFIG_PARITY_NONE);
 
@@ -41,13 +42,13 @@ void UltraMaXXComponent::loop() {
   uint32_t now = millis();
 
   // ------------------------------------------------
-  // Wakeup (~2.2s)
+  // Wakeup (53x 0x55 ≈ 2.2s)
   // ------------------------------------------------
   if (state == UM_WAKEUP) {
 
-    if (now - last_send > 12) {
-      uint8_t b = 0x55;
-      this->write_array(&b,1);
+    if (now - last_send > 40) {   // entspricht ungefähr deinem for-loop
+      uint8_t buf[10] = {0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
+      this->write_array(buf,10);
       last_send = now;
     }
 
@@ -59,34 +60,29 @@ void UltraMaXXComponent::loop() {
   }
 
   // ------------------------------------------------
-  // Pause + Switch to 8E1
+  // Pause 350 ms (wie Script!)
   // ------------------------------------------------
-  if (state == UM_WAIT && now - state_ts > 100) {
+  if (state == UM_WAIT && now - state_ts > 350) {
 
     ESP_LOGI(TAG, "Switch to 2400 8E1");
 
     this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
 
-    state = UM_REQ;
+    state = UM_SEND;
   }
 
   // ------------------------------------------------
-  // SND_NKE + REQ_UD2
+  // ⭐ SND_UD (105BFE5916) — exakt wie Script
   // ------------------------------------------------
-  if (state == UM_REQ) {
+  if (state == UM_SEND) {
 
-    uint8_t reset[] = {0x10,0x40,0xFE,0x3E,0x16};
-    this->write_array(reset,sizeof(reset));
-    ESP_LOGI(TAG, "SND_NKE gesendet");
-
-    delay(50);
-
-    uint8_t req[] = {0x10,0x7B,0xFE,0x79,0x16};
+    uint8_t req[] = {0x10,0x5B,0xFE,0x59,0x16};
     this->write_array(req,sizeof(req));
-    ESP_LOGI(TAG, "REQ_UD2 gesendet");
+
+    ESP_LOGI(TAG, "SND_UD Init gesendet");
 
     state = UM_RX;
-    state_ts = millis();
+    state_ts = now;
   }
 
   // ------------------------------------------------
@@ -106,7 +102,7 @@ void UltraMaXXComponent::loop() {
       }
     }
 
-    if (now - state_ts > 2000) {
+    if (now - state_ts > 3000) {
       state = UM_IDLE;
     }
   }
