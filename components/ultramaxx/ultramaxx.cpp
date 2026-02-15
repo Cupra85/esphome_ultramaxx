@@ -28,7 +28,7 @@ void UltraMaXXComponent::update() {
 
   ESP_LOGI(TAG, "=== READ START ===");
 
-  // ⭐ KEIN ESP32UartComponent mehr!
+  // ⭐ ESPHome-konform — kein ESP32UartComponent mehr
   this->parent_->set_baud_rate(2400);
   this->parent_->set_parity(uart::UART_CONFIG_PARITY_NONE);
 
@@ -42,6 +42,7 @@ void UltraMaXXComponent::loop() {
 
   uint32_t now = millis();
 
+  // Wakeup (~2.2s)
   if (state == UM_WAKEUP) {
 
     if (now - last_send > 12) {
@@ -57,6 +58,7 @@ void UltraMaXXComponent::loop() {
     }
   }
 
+  // Pause
   if (state == UM_WAIT && now - state_ts > 100) {
 
     ESP_LOGI(TAG, "Switch to 2400 8E1");
@@ -66,6 +68,7 @@ void UltraMaXXComponent::loop() {
     state = UM_REQ;
   }
 
+  // REQ_UD2
   if (state == UM_REQ) {
 
     uint8_t req[] = {0x10,0x7B,0xFE,0x79,0x16};
@@ -77,6 +80,7 @@ void UltraMaXXComponent::loop() {
     state_ts = now;
   }
 
+  // RX lesen
   if (state == UM_RX) {
 
     while (available()) {
