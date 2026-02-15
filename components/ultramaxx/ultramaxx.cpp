@@ -27,9 +27,10 @@ void UltraMaXXComponent::update() {
 
   ESP_LOGI(TAG, "=== READ START ===");
 
-  // Wakeup Mode 8N1
+  // ⭐ exakt wie Script: UART auf 2400 8N1 setzen
   this->parent_->set_baud_rate(2400);
   this->parent_->set_parity(uart::UART_CONFIG_PARITY_NONE);
+  this->parent_->load_settings();   // wichtig!
 
   wake_start = millis();
   last_send = 0;
@@ -42,35 +43,18 @@ void UltraMaXXComponent::loop() {
   uint32_t now = millis();
 
   // ------------------------------------------------
-  // Wakeup (53x 0x55 ≈ 2.2s)
+  // Wakeup (~2.2s viele 0x55 wie Script)
   // ------------------------------------------------
   if (state == UM_WAKEUP) {
 
-    // ⭐ exakt wie Script: große 0x55 Blöcke
     if (now - last_send > 15) {
 
       uint8_t buf[20];
-      for (int i=0;i<20;i++) buf[i] = 0x55;
+      for (int i = 0; i < 20; i++) buf[i] = 0x55;
 
       this->write_array(buf,20);
       last_send = now;
     }
-
-  // 2.2 Sekunden Wakeup
-  if (now - wake_start > 2200) {
-    ESP_LOGI(TAG, "Wakeup end");
-    state = UM_WAIT;
-    state_ts = now;
-  }
-}
-
-  // 2.2 Sekunden Wakeup
-  if (now - wake_start > 2200) {
-    ESP_LOGI(TAG, "Wakeup end");
-    state = UM_WAIT;
-    state_ts = now;
-  }
-}
 
     if (now - wake_start > 2200) {
       ESP_LOGI(TAG, "Wakeup end");
@@ -80,19 +64,21 @@ void UltraMaXXComponent::loop() {
   }
 
   // ------------------------------------------------
-  // Pause 350 ms (wie Script!)
+  // Pause 350ms + echtes UART Switch (wie Script)
   // ------------------------------------------------
   if (state == UM_WAIT && now - state_ts > 350) {
 
     ESP_LOGI(TAG, "Switch to 2400 8E1");
 
+    this->parent_->set_baud_rate(2400);
     this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
+    this->parent_->load_settings();   // ⭐ ganz wichtig
 
     state = UM_SEND;
   }
 
   // ------------------------------------------------
-  // ⭐ SND_UD (105BFE5916) — exakt wie Script
+  // ⭐ SND_UD Init (105BFE5916)
   // ------------------------------------------------
   if (state == UM_SEND) {
 
@@ -122,7 +108,8 @@ void UltraMaXXComponent::loop() {
       }
     }
 
-    if (now - state_ts > 6000) {
+    // UltraMaXX antwortet teilweise spät
+    if (millis() - state_ts > 6000) {
       state = UM_IDLE;
     }
   }
