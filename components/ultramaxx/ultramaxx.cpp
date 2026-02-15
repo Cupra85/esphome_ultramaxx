@@ -46,11 +46,31 @@ void UltraMaXXComponent::loop() {
   // ------------------------------------------------
   if (state == UM_WAKEUP) {
 
-    if (now - last_send > 40) {   // entspricht ungefähr deinem for-loop
-      uint8_t buf[10] = {0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
-      this->write_array(buf,10);
+    // ⭐ exakt wie Script: große 0x55 Blöcke
+    if (now - last_send > 15) {
+
+      uint8_t buf[20];
+      for (int i=0;i<20;i++) buf[i] = 0x55;
+
+      this->write_array(buf,20);
       last_send = now;
     }
+
+  // 2.2 Sekunden Wakeup
+  if (now - wake_start > 2200) {
+    ESP_LOGI(TAG, "Wakeup end");
+    state = UM_WAIT;
+    state_ts = now;
+  }
+}
+
+  // 2.2 Sekunden Wakeup
+  if (now - wake_start > 2200) {
+    ESP_LOGI(TAG, "Wakeup end");
+    state = UM_WAIT;
+    state_ts = now;
+  }
+}
 
     if (now - wake_start > 2200) {
       ESP_LOGI(TAG, "Wakeup end");
