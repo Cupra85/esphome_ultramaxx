@@ -1,4 +1,5 @@
 #include "ultramaxx.h"
+#include "esphome/components/uart/uart_component_esp32.h"
 
 namespace esphome {
 namespace ultramaxx {
@@ -16,11 +17,20 @@ enum UMState {
 
 static UMState state = UM_IDLE;
 
-static uint32_t state_ts = 0;
 static uint32_t wake_start = 0;
+static uint32_t last_send = 0;
+static uint32_t state_ts = 0;
+
+static uart_port_t uart_port_used;
 
 void UltraMaXXComponent::setup() {
   ESP_LOGI(TAG, "UltraMaXX component started");
+
+  // ⭐ UART Port vom ESPHome Parent holen
+  auto *p = reinterpret_cast<uart::ESP32UartComponent *>(this->get_parent());
+  uart_port_used = (uart_port_t)p->get_uart_num();
+
+  ESP_LOGI(TAG, "Using UART_NUM_%d (pins kommen aus YAML!)", (int)uart_port_used);
 }
 
 void UltraMaXXComponent::loop() {
@@ -34,23 +44,24 @@ void UltraMaXXComponent::loop() {
 
     ESP_LOGI(TAG, "Wakeup start (2400 8N1)");
 
-    uart_set_baudrate(UART_NUM_1, 2400);
-    uart_set_parity(UART_NUM_1, UART_PARITY_DISABLE); // 8N1
+    uart_set_baudrate(uart_port_used, 2400);
+    uart_set_parity(uart_port_used, UART_PARITY_DISABLE);
 
     wake_start = now;
+    last_send = 0;
     state = UM_WAKEUP;
   }
 
   // ------------------------------------------------
-  // Wakeup 2.2 Sekunden (non blocking!)
+  // Wakeup 0x55 ~2.2s
   // ------------------------------------------------
   if (state == UM_WAKEUP) {
 
-    uint8_t b = 0x55;
-    this->write_array(&b,1);
-
-    // ⭐ WICHTIG: Scheduler freigeben
-    yield();
+    if (now - last_send > 12) {
+      uint8_t b = 0x55;
+      this->write_array(&b,1);
+      last_send = now;
+    }
 
     if (now - wake_start > 2200) {
       ESP_LOGI(TAG, "Wakeup end");
@@ -66,7 +77,7 @@ void UltraMaXXComponent::loop() {
 
     ESP_LOGI(TAG, "Switch to 2400 8E1");
 
-    uart_set_parity(UART_NUM_1, UART_PARITY_EVEN);
+    uart_set_parity(uart_port_used, UART_PARITY_EVEN);
 
     state = UM_REQ;
   }
@@ -88,7 +99,7 @@ void UltraMaXXComponent::loop() {
   // ------------------------------------------------
   // RX lesen
   // ------------------------------------------------
-  if (state == UM_RX && now - state_ts < 2000) {
+  if (state == UM_RX) {
 
     while (available()) {
       uint8_t c;
@@ -96,11 +107,11 @@ void UltraMaXXComponent::loop() {
         ESP_LOGI(TAG, "RX: 0x%02X", c);
       }
     }
-  }
 
-  if (state == UM_RX && now - state_ts >= 2000) {
-    state = UM_IDLE;
-    state_ts = now;
+    if (now - state_ts > 2000) {
+      state = UM_IDLE;
+      state_ts = now;
+    }
   }
 }
 
