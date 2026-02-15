@@ -9,6 +9,7 @@ enum UMState {
   UM_IDLE,
   UM_WAKEUP,
   UM_WAIT,
+  UM_RESET,
   UM_SEND,
   UM_RX
 };
@@ -41,15 +42,13 @@ void UltraMaXXComponent::loop() {
 
   uint32_t now = millis();
 
-  // ------------------------------------------------
-  // Wakeup Burst
-  // ------------------------------------------------
+  // Wakeup
   if (state == UM_WAKEUP) {
 
     if (now - last_send >= 15) {
       uint8_t buf[20];
-      for (int i = 0; i < 20; i++) buf[i] = 0x55;
-      this->write_array(buf, sizeof(buf));
+      for (int i=0;i<20;i++) buf[i]=0x55;
+      this->write_array(buf,20);
       last_send = now;
     }
 
@@ -60,9 +59,7 @@ void UltraMaXXComponent::loop() {
     }
   }
 
-  // ------------------------------------------------
-  // Pause + Switch UART
-  // ------------------------------------------------
+  // Switch UART
   if (state == UM_WAIT && now - state_ts >= 350) {
 
     ESP_LOGI(TAG, "Switch to 2400 8E1");
@@ -71,20 +68,28 @@ void UltraMaXXComponent::loop() {
     this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
     this->parent_->load_settings();
 
-    state = UM_SEND;
+    state = UM_RESET;
   }
 
-  // ------------------------------------------------
-  // SND_UD Init (105BFE5916)
-  // ------------------------------------------------
-  if (state == UM_SEND) {
+  // ⭐ Application Reset (wie sensor53 intern)
+  if (state == UM_RESET) {
+
+    uint8_t reset[] = {0x10,0x40,0xFE,0x3E,0x16};
+    this->write_array(reset,sizeof(reset));
+    this->flush();
+
+    ESP_LOGI(TAG, "SND_NKE gesendet");
+
+    state = UM_SEND;
+    state_ts = millis();
+  }
+
+  // SND_UD Init
+  if (state == UM_SEND && millis()-state_ts>50) {
 
     uint8_t snd_ud[] = {0x10,0x5B,0xFE,0x59,0x16};
-    this->write_array(snd_ud, sizeof(snd_ud));
-
-    // ⭐ entscheidend für Optolink:
-    this->flush();          // alles rausschieben
-    delay(2);               // kurze Bus-Freigabe
+    this->write_array(snd_ud,sizeof(snd_ud));
+    this->flush();
 
     ESP_LOGI(TAG, "SND_UD Init gesendet");
 
@@ -92,28 +97,26 @@ void UltraMaXXComponent::loop() {
     state_ts = millis();
   }
 
-  // ------------------------------------------------
-  // RX lesen
-  // ------------------------------------------------
+  // RX
   if (state == UM_RX) {
 
     int avail = available();
-    if (avail > 0) {
+    if (avail>0) {
       ESP_LOGI(TAG, "RX available bytes: %d", avail);
     }
 
-    while (available()) {
+    while(available()) {
       uint8_t c;
-      if (read_byte(&c)) {
-        ESP_LOGI(TAG, "RX: 0x%02X", c);
+      if(read_byte(&c)) {
+        ESP_LOGI(TAG,"RX: 0x%02X",c);
       }
     }
 
-    if (millis() - state_ts >= 6000) {
+    if (millis()-state_ts>6000) {
       state = UM_IDLE;
     }
   }
 }
 
-}  // namespace ultramaxx
-}  // namespace esphome
+} 
+}
