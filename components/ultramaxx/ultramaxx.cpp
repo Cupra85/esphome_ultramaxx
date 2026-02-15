@@ -32,7 +32,15 @@ void UltraMaXXComponent::setup() {
     // 3️⃣ zurück auf 8E1
     uart_set_parity(UART_NUM_1, UART_PARITY_EVEN);
 
-    // 4️⃣ SND_UD Init (CI=A6)
+    // ⭐ zuerst SND_NKE senden (oft nötig!)
+    uint8_t snd_nke[] = {0x10, 0x40, 0x00, 0x40, 0x16};
+    this->write_array(snd_nke, sizeof(snd_nke));
+
+    ESP_LOGI(TAG, "SND_NKE gesendet");
+
+    delay(50);
+
+    // 4️⃣ danach CI=A6 Init
     uint8_t snd_ud[] = {
         0x68, 0x03, 0x03, 0x68,
         0x53, 0xFE, 0xA6,
