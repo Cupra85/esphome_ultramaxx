@@ -71,22 +71,21 @@ void UltraMaXXComponent::loop() {
   // REQ_UD2
   if (state == UM_REQ) {
 
-    // ⭐ Erst Bus Reset (SND_NKE)
+    // ⭐ Bus Reset (SND_NKE)
     uint8_t reset[] = {0x10,0x40,0xFE,0x3E,0x16};
     this->write_array(reset,sizeof(reset));
     ESP_LOGI(TAG, "SND_NKE gesendet");
 
-    delay(50);   // kurze Pause wie im Referenzscript
+    delay(50);
 
     // Danach REQ_UD2
     uint8_t req[] = {0x10,0x7B,0xFE,0x79,0x16};
     this->write_array(req,sizeof(req));
-
     ESP_LOGI(TAG, "REQ_UD2 gesendet");
 
     state = UM_RX;
     state_ts = millis();
-}
+  }
     this->write_array(req,sizeof(req));
 
     ESP_LOGI(TAG, "REQ_UD2 gesendet");
