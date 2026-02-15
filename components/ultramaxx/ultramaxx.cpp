@@ -1,57 +1,38 @@
-void UltraMaXXComponent::loop() {
-  static uint32_t last_cycle = 0;
-  static uint32_t state_ts = 0;
-  static uint16_t wake_counter = 0;
-  static uint8_t state = 0;
+#include "ultramaxx.h"
 
-  uint32_t now = millis();
+namespace esphome {
+namespace ultramaxx {
+
+static const char *const TAG = "ultramaxx";
+
+void UltraMaXXComponent::setup() {
+  ESP_LOGI(TAG, "UltraMaXX component started");
 
   // -------------------------------------------------
-  // alle 10 Sekunden neuen Zyklus starten
+  // Wakeup + Init Zyklus exakt nach mikrocontroller.net
   // -------------------------------------------------
-  if (state == 0 && now - last_cycle > 10000) {
+  set_interval("ultramaxx_cycle", 10000, [this]() {
+
     ESP_LOGI(TAG, "Wakeup start");
 
-    uart_set_parity(UART_NUM_1, UART_PARITY_DISABLE); // 8N1
+    // 1️⃣ Wakeup: 2400 8N1
+    uart_set_parity(UART_NUM_1, UART_PARITY_DISABLE);
 
-    wake_counter = 0;
-    state_ts = now;
-    state = 1;
-    last_cycle = now;
-  }
+    uint8_t wake = 0x55;
 
-  // -------------------------------------------------
-  // STATE 1: 0x55 Wakeup senden (~3s)
-  // -------------------------------------------------
-  if (state == 1) {
-    if (now - state_ts >= 8) {   // alle 8ms ein Byte
-      uint8_t wake = 0x55;
+    // ~3 Sekunden Wakeup (nicht blockierend genug für ESPHome)
+    for (int i = 0; i < 360; i++) {
       this->write_array(&wake, 1);
-
-      state_ts = now;
-      wake_counter++;
-
-      if (wake_counter >= 360) {   // ~3 Sekunden
-        state = 2;
-        state_ts = now;
-      }
+      delay(2);   // klein halten!
     }
-  }
 
-  // -------------------------------------------------
-  // STATE 2: Pause 234ms (laut Thread)
-  // -------------------------------------------------
-  if (state == 2) {
-    if (now - state_ts > 234) {
-      uart_set_parity(UART_NUM_1, UART_PARITY_EVEN); // 8E1
-      state = 3;
-    }
-  }
+    // 2️⃣ Pause laut Thread (~234 ms)
+    delay(234);
 
-  // -------------------------------------------------
-  // STATE 3: SND_UD Init senden (CI=A6)
-  // -------------------------------------------------
-  if (state == 3) {
+    // 3️⃣ zurück auf 8E1
+    uart_set_parity(UART_NUM_1, UART_PARITY_EVEN);
+
+    // 4️⃣ SND_UD Init (CI=A6)
     uint8_t snd_ud[] = {
         0x68, 0x03, 0x03, 0x68,
         0x53, 0xFE, 0xA6,
@@ -61,12 +42,12 @@ void UltraMaXXComponent::loop() {
     this->write_array(snd_ud, sizeof(snd_ud));
 
     ESP_LOGI(TAG, "SND_UD Init gesendet");
+  });
+}
 
-    state = 4;
-  }
-
+void UltraMaXXComponent::loop() {
   // -------------------------------------------------
-  // STATE 4: RX lauschen (nicht blockierend!)
+  // RX nicht blockierend lesen
   // -------------------------------------------------
   while (available()) {
     uint8_t c;
@@ -75,3 +56,6 @@ void UltraMaXXComponent::loop() {
     }
   }
 }
+
+}  // namespace ultramaxx
+}  // namespace esphome
