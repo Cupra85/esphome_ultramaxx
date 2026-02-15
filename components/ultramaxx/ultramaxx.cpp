@@ -1,5 +1,4 @@
 #include "ultramaxx.h"
-#include "esphome/components/uart/uart_component_esp32.h"
 
 namespace esphome {
 namespace ultramaxx {
