@@ -55,7 +55,7 @@ void UltraMaXXComponent::loop() {
   while (available()) {
     uint8_t c;
     if (read_byte(&c)) {
-      ESP_LOGD(TAG, "RX byte: 0x%02X", c);
+      ESP_LOGD(TAG, "available=%d", this->available());
     }
   }
 }
