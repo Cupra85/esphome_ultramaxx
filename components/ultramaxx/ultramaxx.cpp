@@ -27,13 +27,13 @@ void UltraMaXXComponent::update() {
 
   ESP_LOGI(TAG, "=== READ START ===");
 
-  // ⭐ exakt wie Script: UART auf 2400 8N1 setzen
+  // 2400 8N1 – wie sensor53: sml(-1 1 "2400:8N1")
   this->parent_->set_baud_rate(2400);
   this->parent_->set_parity(uart::UART_CONFIG_PARITY_NONE);
-  this->parent_->load_settings();   // wichtig!
+  this->parent_->load_settings();   // WICHTIG: echter UART-Reset
 
   wake_start = millis();
-  last_send = 0;
+  last_send  = 0;
 
   state = UM_WAKEUP;
 }
@@ -43,20 +43,18 @@ void UltraMaXXComponent::loop() {
   uint32_t now = millis();
 
   // ------------------------------------------------
-  // Wakeup (~2.2s viele 0x55 wie Script)
+  // Wakeup: >1000 Bytes 0x55 für ~2,2s
   // ------------------------------------------------
   if (state == UM_WAKEUP) {
 
-    if (now - last_send > 15) {
-
+    if (now - last_send >= 15) {
       uint8_t buf[20];
       for (int i = 0; i < 20; i++) buf[i] = 0x55;
-
-      this->write_array(buf,20);
+      this->write_array(buf, sizeof(buf));
       last_send = now;
     }
 
-    if (now - wake_start > 2200) {
+    if (now - wake_start >= 2200) {
       ESP_LOGI(TAG, "Wakeup end");
       state = UM_WAIT;
       state_ts = now;
@@ -64,26 +62,29 @@ void UltraMaXXComponent::loop() {
   }
 
   // ------------------------------------------------
-  // Pause 350ms + echtes UART Switch (wie Script)
+  // Pause 350 ms + Switch auf 2400 8E1
   // ------------------------------------------------
-  if (state == UM_WAIT && now - state_ts > 350) {
+  if (state == UM_WAIT && now - state_ts >= 350) {
 
     ESP_LOGI(TAG, "Switch to 2400 8E1");
 
     this->parent_->set_baud_rate(2400);
     this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
-    this->parent_->load_settings();   // ⭐ ganz wichtig
+    this->parent_->load_settings();   // exakt wie sml(-1 1 "2400:8E1")
 
     state = UM_SEND;
   }
 
   // ------------------------------------------------
-  // ⭐ SND_UD Init (105BFE5916)
+  // SND_UD Init: 10 5B FE 59 16
   // ------------------------------------------------
   if (state == UM_SEND) {
 
-    uint8_t req[] = {0x10,0x5B,0xFE,0x59,0x16};
-    this->write_array(req,sizeof(req));
+    uint8_t snd_ud[] = {0x10, 0x5B, 0xFE, 0x59, 0x16};
+    this->write_array(snd_ud, sizeof(snd_ud));
+
+    // TX freigeben (wichtig bei Optolink!)
+    this->flush();
 
     ESP_LOGI(TAG, "SND_UD Init gesendet");
 
@@ -92,13 +93,13 @@ void UltraMaXXComponent::loop() {
   }
 
   // ------------------------------------------------
-  // RX lesen
+  // RX-Fenster (UltraMaXX antwortet teils spät)
   // ------------------------------------------------
   if (state == UM_RX) {
 
-    int count = available();
-    if (count > 0) {
-      ESP_LOGI(TAG, "RX available bytes: %d", count);
+    int avail = available();
+    if (avail > 0) {
+      ESP_LOGI(TAG, "RX available bytes: %d", avail);
     }
 
     while (available()) {
@@ -108,8 +109,7 @@ void UltraMaXXComponent::loop() {
       }
     }
 
-    // UltraMaXX antwortet teilweise spät
-    if (millis() - state_ts > 6000) {
+    if (millis() - state_ts >= 6000) {
       state = UM_IDLE;
     }
   }
