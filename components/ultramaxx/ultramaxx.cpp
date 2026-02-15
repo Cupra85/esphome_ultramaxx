@@ -20,26 +20,20 @@ static uint32_t wake_start = 0;
 static uint32_t last_send = 0;
 static uint32_t state_ts = 0;
 
-static uart_port_t uart_port_used;
-
 void UltraMaXXComponent::setup() {
   ESP_LOGI(TAG, "UltraMaXX component started");
-
-  auto *p = reinterpret_cast<uart::ESP32UartComponent *>(this->get_parent());
-  uart_port_used = (uart_port_t)p->get_uart_num();
-
-  ESP_LOGI(TAG, "Using UART_NUM_%d", (int)uart_port_used);
 }
 
 //
-// ⭐ Wird automatisch alle update_interval Sekunden aufgerufen!
+// ⭐ Wird durch update_interval aus YAML ausgelöst
 //
 void UltraMaXXComponent::update() {
 
   ESP_LOGI(TAG, "=== READ START ===");
 
-  uart_set_baudrate(uart_port_used, 2400);
-  uart_set_parity(uart_port_used, UART_PARITY_DISABLE);
+  // UART Einstellungen direkt über Parent (ESPHome API)
+  this->parent_->set_baud_rate(2400);
+  this->parent_->set_parity(uart::UART_CONFIG_PARITY_NONE);
 
   wake_start = millis();
   last_send = 0;
@@ -52,7 +46,7 @@ void UltraMaXXComponent::loop() {
   uint32_t now = millis();
 
   // ------------------------------------------------
-  // Wakeup senden (~2.2s)
+  // Wakeup (~2.2s)
   // ------------------------------------------------
   if (state == UM_WAKEUP) {
 
@@ -76,13 +70,13 @@ void UltraMaXXComponent::loop() {
 
     ESP_LOGI(TAG, "Switch to 2400 8E1");
 
-    uart_set_parity(uart_port_used, UART_PARITY_EVEN);
+    this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
 
     state = UM_REQ;
   }
 
   // ------------------------------------------------
-  // REQ_UD2 senden
+  // REQ_UD2
   // ------------------------------------------------
   if (state == UM_REQ) {
 
