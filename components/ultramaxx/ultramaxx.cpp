@@ -16,8 +16,6 @@ enum UMState {
 
 static UMState state = UM_IDLE;
 
-static uint32_t wake_start = 0;
-static uint32_t last_send = 0;
 static uint32_t state_ts = 0;
 
 void UltraMaXXComponent::setup() {
@@ -29,7 +27,7 @@ void UltraMaXXComponent::loop() {
   uint32_t now = millis();
 
   // ------------------------------------------------
-  // Start Zyklus alle 10 Sekunden
+  // Start Zyklus
   // ------------------------------------------------
   if (state == UM_IDLE && now - state_ts > 10000) {
 
@@ -38,41 +36,20 @@ void UltraMaXXComponent::loop() {
     uart_set_baudrate(UART_NUM_1, 2400);
     uart_set_parity(UART_NUM_1, UART_PARITY_DISABLE); // 8N1
 
-    wake_start = now;
-    last_send = 0;
-    state = UM_WAKEUP;
+    // ⭐ Wakeup BLOCK senden (wie Script)
+    static uint8_t wake[532];
+    for(int i=0;i<532;i++) wake[i]=0x55;
+
+    this->write_array(wake, sizeof(wake));
+
+    state = UM_WAIT;
+    state_ts = now;
   }
 
   // ------------------------------------------------
-  // Wakeup ca. 2.2 Sekunden
-  // ------------------------------------------------
-  if (state == UM_WAKEUP) {
-
-    // ⭐ geändert: 12ms statt 5ms (Scheduler entlasten)
-    if (now - last_send > 12) {
-      uint8_t b = 0x55;
-      this->write_array(&b,1);
-      last_send = now;
-    }
-
-    if (now - wake_start > 2200) {
-      ESP_LOGI(TAG, "Wakeup end");
-      state = UM_WAIT;
-      state_ts = now;
-    }
-  }
-
-  // ------------------------------------------------
-  // Pause nach Wakeup (~100ms)
+  // Pause ~100ms
   // ------------------------------------------------
   if (state == UM_WAIT && now - state_ts > 100) {
-    state = UM_SWITCH;
-  }
-
-  // ------------------------------------------------
-  // Wechsel zu 2400 8E1
-  // ------------------------------------------------
-  if (state == UM_SWITCH) {
 
     ESP_LOGI(TAG, "Switch to 2400 8E1");
 
@@ -92,11 +69,11 @@ void UltraMaXXComponent::loop() {
     ESP_LOGI(TAG, "REQ_UD2 gesendet");
 
     state = UM_RX;
-    state_ts = now;   // ⭐ wichtig: Start RX-Zeitfenster
+    state_ts = now;
   }
 
   // ------------------------------------------------
-  // RX lesen (2 Sekunden aktiv lauschen)
+  // RX lesen
   // ------------------------------------------------
   if (state == UM_RX && now - state_ts < 2000) {
 
@@ -108,9 +85,6 @@ void UltraMaXXComponent::loop() {
     }
   }
 
-  // ------------------------------------------------
-  // Danach wieder Idle
-  // ------------------------------------------------
   if (state == UM_RX && now - state_ts >= 2000) {
     state = UM_IDLE;
     state_ts = now;
