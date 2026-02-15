@@ -82,7 +82,7 @@ void UltraMaXXComponent::loop() {
     ESP_LOGI(TAG, "SND_UD Init gesendet");
 
     state = UM_RX;
-    state_ts = now;
+    state_ts = millis();
   }
 
   // ------------------------------------------------
@@ -102,7 +102,7 @@ void UltraMaXXComponent::loop() {
       }
     }
 
-    if (now - state_ts > 3000) {
+    if (now - state_ts > 6000) {
       state = UM_IDLE;
     }
   }
