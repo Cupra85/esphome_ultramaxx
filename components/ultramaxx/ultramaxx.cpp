@@ -1,4 +1,5 @@
 #include "ultramaxx.h"
+#warning "ULTRAMAXX NEW BUILD ACTIVE"
 
 namespace esphome {
 namespace ultramaxx {
