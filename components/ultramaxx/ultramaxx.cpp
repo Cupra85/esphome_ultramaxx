@@ -11,7 +11,7 @@ enum UMState {
   UM_WAIT,
   UM_RESET,
   UM_WAIT_ACK,
-  UM_SEND,
+  UM_REQ,
   UM_RX
 };
 
@@ -57,7 +57,7 @@ void UltraMaXXComponent::loop() {
     }
   }
 
-  // SWITCH
+  // SWITCH UART
   if(state==UM_WAIT && now-state_ts_>350){
 
     ESP_LOGI(TAG,"Switch to 2400 8E1");
@@ -74,11 +74,11 @@ void UltraMaXXComponent::loop() {
 
     ESP_LOGI(TAG,"SND_NKE gesendet");
 
-    state = UM_WAIT_ACK;
-    state_ts_ = millis();
+    state=UM_WAIT_ACK;
+    state_ts_=millis();
   }
 
-  // ⭐ WICHTIG: AUF ACK WARTEN
+  // ⭐ ACK WAIT — DAS FEHLTE DIR
   if(state==UM_WAIT_ACK){
 
     while(available()){
@@ -86,24 +86,24 @@ void UltraMaXXComponent::loop() {
       if(read_byte(&c)){
         if(c==0xE5){
           ESP_LOGI(TAG,"ACK E5 erhalten");
-          state=UM_SEND;
+          state=UM_REQ;
           state_ts_=millis();
         }
       }
     }
 
-    // Fallback falls ACK nicht kommt
+    // fallback falls ACK verschluckt wird
     if(millis()-state_ts_>800){
-      ESP_LOGW(TAG,"ACK Timeout → trotzdem weiter");
-      state=UM_SEND;
+      ESP_LOGW(TAG,"ACK Timeout → sende trotzdem REQ");
+      state=UM_REQ;
       state_ts_=millis();
     }
   }
 
   // REQ_UD2
-  if(state==UM_SEND && millis()-state_ts_>50){
+  if(state==UM_REQ && millis()-state_ts_>50){
 
-    uint8_t req[]={0x10,0x7B,0xFE,0x79,0x16};
+    uint8_t req[]={0x10,0x5B,0xFE,0x59,0x16};
     write_array(req,sizeof(req));
     flush();
 
@@ -124,7 +124,7 @@ void UltraMaXXComponent::loop() {
     }
 
     if(rx_buffer_.size()>10 && rx_buffer_.back()==0x16){
-      ESP_LOGI(TAG,"Frame erhalten (%d bytes)",rx_buffer_.size());
+      ESP_LOGI(TAG,"Frame empfangen (%d Bytes)",rx_buffer_.size());
       rx_buffer_.clear();
       state=UM_IDLE;
     }
