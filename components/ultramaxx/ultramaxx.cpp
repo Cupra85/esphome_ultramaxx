@@ -1,215 +1,113 @@
 #include "ultramaxx.h"
-#include "driver/uart.h" // Wichtig für Register-Zugriffe
-#include "driver/uart.h"
 
 namespace esphome {
 namespace ultramaxx {
-@@ -20,111 +20,152 @@ static uint32_t wake_start = 0;
-static uint32_t last_send  = 0;
-static uint32_t state_ts   = 0;
 
-static std::vector<uint8_t> frame;
-static bool frame_complete = false;
+static const char *const TAG = "ultramaxx";
 
-static uint64_t bcd_le_to_u64_(const uint8_t *p, size_t n) {
-  uint64_t v = 0;
-  uint64_t mul = 1;
-  for (size_t i = 0; i < n; i++) {
-    uint8_t b = p[i];
-    v += (b & 0x0F) * mul; mul *= 10;
-    v += ((b >> 4) & 0x0F) * mul; mul *= 10;
-  }
-  return v;
+enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
+static UMState state = UM_IDLE;
+static bool fcb_toggle = false;
+
+float UltraMaXXComponent::decode_bcd(std::vector<uint8_t> &data, size_t start, size_t len) {
+    float value = 0;
+    float mul = 1;
+    for (size_t i = 0; i < len; i++) {
+        if (start + i >= data.size()) break;
+        uint8_t b = data[start + i];
+        value += (b & 0x0F) * mul; mul *= 10;
+        value += ((b >> 4) & 0x0F) * mul; mul *= 10;
+    }
+    return value;
 }
 
-void UltraMaXXComponent::setup() {
-  ESP_LOGI(TAG, "UltraMaXX component started");
-}
+void UltraMaXXComponent::setup() { ESP_LOGI(TAG, "UltraMaXX gestartet"); }
 
 void UltraMaXXComponent::update() {
-
-  ESP_LOGI(TAG, "=== READ START ===");
-
-  // UART Initialisierung für Wakeup (8N1)
-  this->parent_->set_baud_rate(2400);
-  this->parent_->set_parity(uart::UART_CONFIG_PARITY_NONE);
-  this->parent_->load_settings();
-
-  // ⭐ S3-Spezifisch: Invertierung NACH load_settings setzen
-  // Wir nutzen UART_NUM_1 (entspricht meistens deinem bus_uart)
-  uart_set_line_inverse(UART_NUM_1, UART_SIGNAL_RXD_INV | UART_SIGNAL_TXD_INV);
-
-  frame.clear();
-  frame_complete = false;
-
-  wake_start = millis();
-  last_send  = 0;
-  state = UM_WAKEUP;
-}
-
-void UltraMaXXComponent::loop() {
-
-  uint32_t now = millis();
-
-  // 1. PHASE: WAKEUP (2.2 Sekunden 0x55)
-  if (state == UM_WAKEUP) {
-    if (now - last_send >= 15) {
-      uint8_t buf[20];
-      for (int i=0; i<20; i++) buf[i]=0x55;
-      this->write_array(buf, 20);
-      last_send = now;
-      for(int i=0;i<20;i++) buf[i]=0x55;
-      this->write_array(buf,20);
-      last_send=now;
-    }
-
-    if (now - wake_start >= 2200) {
-      ESP_LOGI(TAG, "Wakeup end");
-      state = UM_WAIT;
-      state_ts = now;
-    if(now-wake_start>=2200){
-      ESP_LOGI(TAG,"Wakeup end");
-      state=UM_WAIT;
-      state_ts=now;
-    }
-  }
-
-  // 2. PHASE: SWITCH UART (350ms Pause laut Tasmota)
-  if (state == UM_WAIT && now - state_ts >= 350) {
-    ESP_LOGI(TAG, "Switch to 2400 8E1");
-
+    ESP_LOGI(TAG, "=== UPDATE START ===");
+    ESP_LOGI(TAG, "=== START READ (FCB: %d) ===", fcb_toggle);
     this->parent_->set_baud_rate(2400);
-  if(state==UM_WAIT && now-state_ts>=350){
-    ESP_LOGI(TAG,"Switch to 2400 8E1");
-    this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
+    this->parent_->set_parity(uart::UART_CONFIG_PARITY_NONE);
     this->parent_->load_settings();
-
-    // ⭐ Erneut Invertierung setzen, da load_settings die Register resettet
-    uart_set_line_inverse(UART_NUM_1, UART_SIGNAL_RXD_INV | UART_SIGNAL_TXD_INV);
-
-    // Puffer radikal leeren (Echo des Wakeups entfernen)
-    uint8_t dummy;
-    while (this->available()) this->read_byte(&dummy);
-    uint8_t d;
-    while(this->available()) this->read_byte(&d);
-
-    state = UM_RESET;
-    state=UM_RESET;
-  }
-
-  // 3. PHASE: SND_NKE (Reset an Broadcast FE)
-  if (state == UM_RESET) {
-    uint8_t reset[] = {0x10, 0x40, 0xFE, 0x3E, 0x16};
-    this->write_array(reset, sizeof(reset));
-  if(state==UM_RESET){
-    uint8_t reset[]={0x10,0x40,0xFE,0x3E,0x16};
-    this->write_array(reset,5);
-    this->flush();
-    ESP_LOGI(TAG,"SND_NKE gesendet");
-
-    ESP_LOGI(TAG, "SND_NKE gesendet");
-    state=UM_SEND;
-    state_ts=millis();
-  }
-
-    state = UM_SEND;
-    state_ts = millis();
-  if(state==UM_SEND && millis()-state_ts>50){
-    uint8_t snd[]={0x10,0x5B,0xFE,0x59,0x16};
-    this->write_array(snd,5);
-    this->flush();
-    ESP_LOGI(TAG,"SND_UD Init gesendet");
-
-    state=UM_RX;
-    state_ts=millis();
-  }
-
-  // 4. PHASE: SND_UD (Eigentlicher Trigger)
-  if (state == UM_SEND && millis() - state_ts > 50) {
-    // Vor dem Senden nochmal kurz Puffer leeren (Echo-Vermeidung)
-    uint8_t dummy;
-    while (this->available()) this->read_byte(&dummy);
-  if(state==UM_RX){
-
-    uint8_t snd_ud[] = {0x10, 0x5B, 0xFE, 0x59, 0x16};
-    this->write_array(snd_ud, sizeof(snd_ud));
-    this->flush();
-    while(this->available()){
-      uint8_t c;
-      if(!this->read_byte(&c)) break;
-
-    ESP_LOGI(TAG, "SND_UD Init gesendet");
-      if(frame.empty()){
-        if(c==0x68) frame.push_back(c);
-        continue;
-      }
-
-    state = UM_RX;
-    state_ts = millis();
-  }
-      frame.push_back(c);
-
-      if(frame.size()==4){
-        if(frame[3]!=0x68){frame.clear();}
-      }
-
-      if(frame.size()>5 && frame.back()==0x16){
-        frame_complete=true;
-        break;
-      }
+@@ -49,17 +47,13 @@
+    if (state == UM_WAIT && now - state_ts_ > 350) {
+        this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
+        this->parent_->load_settings();
+        
+        // Puffer radikal leeren
+        uint8_t d; while(this->available()) this->read_byte(&d);
+        
+        uint8_t reset[] = {0x10, 0x40, 0xFE, 0x3E, 0x16};
+        this->write_array(reset, sizeof(reset));
+        state = UM_SEND; state_ts_ = now;
     }
 
-  // 5. PHASE: EMPFANG
-  if (state == UM_RX) {
-    // Wir warten etwas länger (bis zu 6 Sek), da der Zähler träge ist
-    if (this->available()) {
-      ESP_LOGI(TAG, "Daten empfangen! Lese Bytes...");
-      while (this->available()) {
-        uint8_t c;
-        if (this->read_byte(&c)) {
-          ESP_LOGI(TAG, "RX: 0x%02X", c);
-    if(frame_complete){
-
-      // Seriennummer 0C 78
-      if(serial_number_){
-        for(size_t i=0;i+6<frame.size();i++){
-          if(frame[i]==0x0C && frame[i+1]==0x78){
-            uint64_t sn=bcd_le_to_u64_(&frame[i+2],4);
-            serial_number_->publish_state((float)sn);
-            break;
-          }
+    if (state == UM_SEND && now - state_ts_ > 100) {
+        // REQ_UD2 mit FCB Toggle (0x5B / 0x7B)
+        uint8_t ctrl = fcb_toggle ? 0x7B : 0x5B;
+        uint8_t cs = (ctrl + 0xFE) & 0xFF;
+        uint8_t req[] = {0x10, ctrl, 0xFE, cs, 0x16};
+@@ -77,43 +71,44 @@
+            }
         }
-      }
 
-      // DateTime 04 6D
-      if(meter_time_){
-        for(size_t i=0;i+8<frame.size();i++){
-          if(frame[i]==0x04 && frame[i+1]==0x6D){
-            char buf[32];
-            sprintf(buf,"%02X%02X%02X%02X",
-              frame[i+2],frame[i+3],frame[i+4],frame[i+5]);
-            meter_time_->publish_state(buf);
-            break;
-          }
+        // Sobald wir mehr als 30 Bytes haben ODER 1 Sekunde Pause ist
+        if (rx_buffer_.size() > 30 && (now - last_rx_byte_ > 500)) {
+        if (rx_buffer_.size() > 50 && (now - last_rx_byte_ > 1000)) {
+            auto &f = rx_buffer_;
+            ESP_LOGI(TAG, "Suche Werte in %d Bytes...", f.size());
+            ESP_LOGI(TAG, "Parsing Frame (%d Bytes)...", f.size());
+
+            for (size_t i = 0; i + 6 < f.size(); i++) {
+                // SERIAL (0C 78) - 4 Byte BCD
+            for (size_t i = 0; i + 10 < f.size(); i++) {
+                // 1. Seriennummer: 0C 78 -> direkt 4 Byte BCD
+                if (f[i] == 0x0C && f[i+1] == 0x78) {
+                    if (serial_number_) serial_number_->publish_state(decode_bcd(f, i+2, 4));
+                    ESP_LOGD(TAG, "SN gefunden");
+                }
+                // ENERGIE (04 06) - 4 Byte BINÄR (laut deinem Log CC 5E 00 00)
+                // 2. Energie: 04 06 -> Tasmota sagt: 4 Byte Integer (uuUUuuUU)
+                if (f[i] == 0x04 && f[i+1] == 0x06) {
+                    uint32_t v = (uint32_t)f[i+2] | (uint32_t)f[i+3]<<8 | (uint32_t)f[i+4]<<16 | (uint32_t)f[i+5]<<24;
+                    if (total_energy_) total_energy_->publish_state(v * 0.01f);
+                    ESP_LOGI(TAG, "Energie gefunden: %.2f", v * 0.01f);
+                    if (total_energy_) total_energy_->publish_state(v * 0.001f); // MWh laut Script
+                }
+                // VOLUMEN (0C 14) - 4 Byte BCD
+                // 3. Volumen: 0C 14 -> 4 Byte BCD
+                if (f[i] == 0x0C && f[i+1] == 0x14) {
+                    if (total_volume_) total_volume_->publish_state(decode_bcd(f, i+2, 4) * 0.01f);
+                    ESP_LOGI(TAG, "Volumen gefunden");
+                }
+                // VORLAUF (0A 5A) - 2 Byte BINÄR
+                // 4. Leistung: 0B 2D -> 3 Byte BCD
+                if (f[i] == 0x0B && f[i+1] == 0x2D) {
+                    if (current_power_) current_power_->publish_state(decode_bcd(f, i+2, 3) * 0.1f);
+                }
+                // 5. Vorlauf: 0A 5A -> 2 Byte BCD
+                if (f[i] == 0x0A && f[i+1] == 0x5A) {
+                    int16_t t = (int16_t)f[i+2] | (int16_t)f[i+3]<<8;
+                    if (temp_flow_) temp_flow_->publish_state(t * 0.1f);
+                    ESP_LOGI(TAG, "Vorlauf gefunden: %.1f", t * 0.1f);
+                    if (temp_flow_) temp_flow_->publish_state(decode_bcd(f, i+2, 2) * 0.1f);
+                }
+                // 6. Rücklauf: 0A 5E -> 2 Byte BCD
+                if (f[i] == 0x0A && f[i+1] == 0x5E) {
+                    if (temp_return_) temp_return_->publish_state(decode_bcd(f, i+2, 2) * 0.1f);
+                }
+                // 7. Delta T: 0B 61 -> 3 Byte BCD
+                if (f[i] == 0x0B && f[i+1] == 0x61) {
+                    if (temp_diff_) temp_diff_->publish_state(decode_bcd(f, i+2, 3) * 0.01f);
+                }
+            }
+            rx_buffer_.clear();
+            state = UM_IDLE;
         }
-      }
 
-      frame.clear();
-      frame_complete=false;
-      state=UM_IDLE;
+        if (now - state_ts_ > 10000) {
+            ESP_LOGW(TAG, "RX Ende (Puffer: %d)", rx_buffer_.size());
+            state = UM_IDLE;
+        }
     }
-
-    if (millis() - state_ts > 6000) {
-      ESP_LOGI(TAG, "Lese-Fenster geschlossen. Gehe zu IDLE.");
-      state = UM_IDLE;
-    if(millis()-state_ts>6000){
-      frame.clear();
-      state=UM_IDLE;
-    }
-  }
-}
-
-} // namespace ultramaxx
-} // namespace esphome
-}
 }
