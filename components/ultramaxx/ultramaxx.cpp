@@ -1,76 +1,71 @@
 #include "ultramaxx.h"
+#include "esphome/core/log.h"
 
 namespace esphome {
 namespace ultramaxx {
-
-static const char *const TAG = "ultramaxx";
-
-enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
-static UMState state = UM_IDLE;
-
-float UltraMaXXComponent::decode_bcd(std::vector<uint8_t> &data, size_t start, size_t len) {
-    float value = 0;
-    float mul = 1;
-    for (size_t i = 0; i < len; i++) {
-        if (start + i >= data.size()) break;
-        uint8_t b = data[start + i];
-        value += (b & 0x0F) * mul;
-        mul *= 10;
-        value += ((b >> 4) & 0x0F) * mul;
-        mul *= 10;
-    }
-    return value;
+@@ -23,15 +22,14 @@ float UltraMaXXComponent::decode_bcd(std::vector<uint8_t> &data, size_t start, s
 }
 
-void UltraMaXXComponent::setup() { ESP_LOGI(TAG, "UltraMaXX gestartet"); }
 void UltraMaXXComponent::setup() {
+    ESP_LOGI(TAG, "UltraMaXX Heat Meter Component started");
     ESP_LOGI(TAG, "UltraMaXX Component gestartet");
 }
 
 void UltraMaXXComponent::update() {
+    ESP_LOGI(TAG, "=== READ START ===");
     ESP_LOGI(TAG, "=== UPDATE START ===");
-@@ -38,31 +40,47 @@
+    this->parent_->set_baud_rate(2400);
+    this->parent_->set_parity(uart::UART_CONFIG_PARITY_NONE);
+    this->parent_->load_settings();
+    
+    rx_buffer_.clear();
+    wake_start_ = millis();
+    last_send_ = 0;
+@@ -41,51 +39,37 @@ void UltraMaXXComponent::update() {
 void UltraMaXXComponent::loop() {
     uint32_t now = millis();
 
-    // 1. WAKEUP (0x55 senden)
+    // 1. WAKEUP: 2,2s lang 0x55 senden
     if (state == UM_WAKEUP) {
         if (now - last_send_ > 15) {
+            uint8_t wakeup_byte = 0x55;
+            this->write_array(&wakeup_byte, 1);
             uint8_t b = 0x55;
             this->write_array(&b, 1);
             last_send_ = now;
         }
-        if (now - wake_start_ > 2200) { state = UM_WAIT; state_ts_ = now; }
         if (now - wake_start_ > 2200) {
+            ESP_LOGI(TAG, "Wakeup end");
             state = UM_WAIT;
             state_ts_ = now;
         }
     }
 
-    // 2. SWITCH & CLEANUP (Wichtig wegen Puffer!)
+    // 2. SWITCH: Wechsel auf 2400 8E1 und Reset (SND_NKE)
     if (state == UM_WAIT && now - state_ts_ > 350) {
+        ESP_LOGI(TAG, "Switch to 2400 8E1");
         this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
         this->parent_->load_settings();
         
-        // Puffer leeren (alle 0x55 Wakeup-Bytes wegwerfen)
         uint8_t dummy;
         while (this->available()) this->read_byte(&dummy);
-        rx_buffer_.clear();
 
         uint8_t reset[] = {0x10, 0x40, 0xFE, 0x3E, 0x16};
         this->write_array(reset, sizeof(reset));
-        state = UM_SEND; state_ts_ = now;
         this->flush();
+        ESP_LOGI(TAG, "SND_NKE gesendet");
+        
         state = UM_SEND;
         state_ts_ = now;
     }
 
-    // 3. REQUEST
+    // 3. REQUEST: Daten anfordern (REQ_UD2)
     if (state == UM_SEND && now - state_ts_ > 100) {
         uint8_t req[] = {0x10, 0x7B, 0xFE, 0x79, 0x16};
         this->write_array(req, sizeof(req));
-        state = UM_RX; state_ts_ = now; last_rx_byte_ = now;
         this->flush();
+        ESP_LOGI(TAG, "REQ_UD2 gesendet");
+        
         state = UM_RX;
         state_ts_ = now;
         last_rx_byte_ = now;
@@ -80,81 +75,128 @@ void UltraMaXXComponent::loop() {
     if (state == UM_RX) {
         while (this->available()) {
             uint8_t c;
-@@ -75,43 +93,54 @@
-        if (rx_buffer_.size() > 10 && millis() - last_rx_byte_ > 1000) {
-            auto &f = rx_buffer_;
-
-            // HEX-DUMP FÜR FEHLERSUCHE
-            std::string hex;
-            char buf[5];
-            for (uint8_t b : f) { sprintf(buf, "%02X ", b); hex += buf; }
-            ESP_LOGI(TAG, "Frame (L=%d): %s", f.size(), hex.c_str());
-            // HEX DUMP: Zeigt uns den kompletten Frame im Log
-            std::string hex_str = "";
-            char buf[4];
-            for (uint8_t b : f) {
-                sprintf(buf, "%02X ", b);
-                hex_str += buf;
+@@ -95,85 +79,63 @@ void UltraMaXXComponent::loop() {
             }
-            ESP_LOGI(TAG, "Frame empfangen (%d Bytes): %s", f.size(), hex_str.c_str());
+        }
+
+        // Wenn 1s keine Daten mehr kommen, interpretieren wir den Frame als fertig
+        if (rx_buffer_.size() > 20 && millis() - last_rx_byte_ > 1000) {
+        if (rx_buffer_.size() > 20 && millis() - last_rx_byte_ > 800) {
+            auto &f = rx_buffer_;
+            
+            // Log den Frame als Hex-Kette für das Debugging
+            char hex_buf[4];
+            std::string log_msg = "Frame Hex: ";
+            for (uint8_t b : f) {
+                sprintf(hex_buf, "%02X ", b);
+                log_msg += hex_buf;
+            }
+            ESP_LOGD(TAG, "%s", log_msg.c_str());
+            ESP_LOGI(TAG, "Frame empfangen (%d Bytes). Starte Parsing...", f.size());
 
             for (size_t i = 0; i + 4 < f.size(); i++) {
-                // SERIAL (0C 78)
-                // SERIAL (0C 78) - 4 Byte BCD
+                
+                // SERIAL (0C 78) - BCD
+                if (serial_number_ && f[i] == 0x0C && f[i+1] == 0x78) {
+                    float sn = decode_bcd(f, i+2, 4);
+                    serial_number_->publish_state(sn);
+                    ESP_LOGD(TAG, "Match: Serial %.0f", sn);
+                // SERIAL: 0C 78 (8-stellig BCD)
                 if (f[i] == 0x0C && f[i+1] == 0x78) {
-                    float val = decode_bcd(f, i+2, 4);
-                    if (serial_number_) { serial_number_->publish_state(val); ESP_LOGI(TAG, "SN OK: %.0f", val); }
-                    else { ESP_LOGW(TAG, "SN Sensor fehlt in YAML!"); }
                     if (serial_number_) serial_number_->publish_state(decode_bcd(f, i+2, 4));
-                    ESP_LOGD(TAG, "Seriennummer gefunden");
+                    i += 5; continue; 
                 }
-                // ENERGIE (04 06)
+                
+                // ENERGY (04 06) - Binär (Wh oder kWh je nach Gerät)
+                if (total_energy_ && f[i] == 0x04 && f[i+1] == 0x06) {
+                    uint32_t val = (uint32_t)f[i+2] | (uint32_t)f[i+3] << 8 | (uint32_t)f[i+4] << 16 | (uint32_t)f[i+5] << 24;
+                    total_energy_->publish_state(val * 0.01f);
+                    ESP_LOGD(TAG, "Match: Energy %.2f", val * 0.01f);
+                // ENERGY: 04 06 (4-byte binär)
                 if (f[i] == 0x04 && f[i+1] == 0x06) {
-                // ENERGIE (04 06) - 4 Byte Binär
-                else if (f[i] == 0x04 && f[i+1] == 0x06) {
                     uint32_t v = (uint32_t)f[i+2] | (uint32_t)f[i+3]<<8 | (uint32_t)f[i+4]<<16 | (uint32_t)f[i+5]<<24;
-                    if (total_energy_) { total_energy_->publish_state(v * 0.01f); ESP_LOGI(TAG, "Energy OK: %.2f", v * 0.01f); }
-                    else { ESP_LOGW(TAG, "Energy Sensor fehlt in YAML!"); }
                     if (total_energy_) total_energy_->publish_state(v * 0.01f);
-                    ESP_LOGD(TAG, "Energie gefunden");
+                    i += 5; continue;
                 }
-                // VOLUMEN (0C 14)
+
+                // VOLUME (0C 14) - BCD
+                if (total_volume_ && f[i] == 0x0C && f[i+1] == 0x14) {
+                    float vol = decode_bcd(f, i+2, 4) * 0.01f;
+                    total_volume_->publish_state(vol);
+                    ESP_LOGD(TAG, "Match: Volume %.2f", vol);
+                // VOLUME: 0C 14 (8-stellig BCD)
                 if (f[i] == 0x0C && f[i+1] == 0x14) {
-                    float val = decode_bcd(f, i+2, 4) * 0.01f;
-                    if (total_volume_) { total_volume_->publish_state(val); ESP_LOGI(TAG, "Volume OK: %.2f", val); }
-                // VOLUMEN (0C 14) - 4 Byte BCD
-                else if (f[i] == 0x0C && f[i+1] == 0x14) {
                     if (total_volume_) total_volume_->publish_state(decode_bcd(f, i+2, 4) * 0.01f);
-                    ESP_LOGD(TAG, "Volumen gefunden");
+                    i += 5; continue;
                 }
-                // VORLAUF (0A 5A)
+
+                // POWER (3B 2D) - Binär
+                if (current_power_ && f[i] == 0x3B && f[i+1] == 0x2D) {
+                    uint32_t p = (uint32_t)f[i+2] | (uint32_t)f[i+3] << 8 | (uint32_t)f[i+4] << 16;
+                    if (p != 0x999999) {
+                        current_power_->publish_state((float)p);
+                        ESP_LOGD(TAG, "Match: Power %.0f", (float)p);
+                    }
+                // FLOW TEMP: 0A 5A (2-byte binär)
                 if (f[i] == 0x0A && f[i+1] == 0x5A) {
-                // VORLAUF (0A 5A) - 2 Byte Binär
-                else if (f[i] == 0x0A && f[i+1] == 0x5A) {
                     int16_t t = (int16_t)f[i+2] | (int16_t)f[i+3]<<8;
-                    if (temp_flow_) { temp_flow_->publish_state(t * 0.1f); ESP_LOGI(TAG, "Flow OK: %.1f", t * 0.1f); }
                     if (temp_flow_) temp_flow_->publish_state(t * 0.1f);
-                    ESP_LOGD(TAG, "Vorlauf gefunden");
+                    i += 3; continue;
                 }
-                // RÜCKLAUF (0A 5E)
+
+                // FLOW TEMP (0A 5A) - Binär (0.1°C)
+                if (temp_flow_ && f[i] == 0x0A && f[i+1] == 0x5A) {
+                    int16_t t = (int16_t)f[i+2] | (int16_t)f[i+3] << 8;
+                    temp_flow_->publish_state(t * 0.1f);
+                    ESP_LOGD(TAG, "Match: Flow Temp %.1f", t * 0.1f);
+                // RETURN TEMP: 0A 5E (2-byte binär)
                 if (f[i] == 0x0A && f[i+1] == 0x5E) {
-                // RÜCKLAUF (0A 5E) - 2 Byte Binär
-                else if (f[i] == 0x0A && f[i+1] == 0x5E) {
                     int16_t t = (int16_t)f[i+2] | (int16_t)f[i+3]<<8;
-                    if (temp_return_) { temp_return_->publish_state(t * 0.1f); ESP_LOGI(TAG, "Return OK: %.1f", t * 0.1f); }
                     if (temp_return_) temp_return_->publish_state(t * 0.1f);
-                    ESP_LOGD(TAG, "Rücklauf gefunden");
+                    i += 3; continue;
                 }
-                // DELTA T (0B 61) - 3 Byte Binär
-                else if (f[i] == 0x0B && f[i+1] == 0x61) {
-                    uint32_t td = (uint32_t)f[i+2] | (uint32_t)f[i+3]<<8 | (uint32_t)f[i+4]<<16;
-                    if (temp_diff_) temp_diff_->publish_state(td * 0.01f);
-                    ESP_LOGD(TAG, "DeltaT gefunden");
+
+                // RETURN TEMP (0A 5E) - Binär (0.1°C)
+                if (temp_return_ && f[i] == 0x0A && f[i+1] == 0x5E) {
+                    int16_t t = (int16_t)f[i+2] | (int16_t)f[i+3] << 8;
+                    temp_return_->publish_state(t * 0.1f);
+                    ESP_LOGD(TAG, "Match: Return Temp %.1f", t * 0.1f);
+                // DELTA T: 0B 61 (3-byte binär)
+                if (f[i] == 0x0B && f[i+1] == 0x61) {
+                    uint32_t t = (uint32_t)f[i+2] | (uint32_t)f[i+3]<<8 | (uint32_t)f[i+4]<<16;
+                    if (temp_diff_) temp_diff_->publish_state(t * 0.01f);
+                    i += 4; continue;
+                }
+
+                // DELTA T (0B 61) - Binär (0.01 K)
+                if (temp_diff_ && f[i] == 0x0B && f[i+1] == 0x61) {
+                    uint32_t td = (uint32_t)f[i+2] | (uint32_t)f[i+3] << 8 | (uint32_t)f[i+4] << 16;
+                    temp_diff_->publish_state(td * 0.01f);
+                    ESP_LOGD(TAG, "Match: Delta T %.2f", td * 0.01f);
+                // POWER: 3B 2D (3-byte binär)
+                if (f[i] == 0x3B && f[i+1] == 0x2D) {
+                    uint32_t p = (uint32_t)f[i+2] | (uint32_t)f[i+3]<<8 | (uint32_t)f[i+4]<<16;
+                    if (current_power_ && p != 0x999999) current_power_->publish_state((float)p);
+                    i += 4; continue;
                 }
             }
+
             rx_buffer_.clear();
             state = UM_IDLE;
-            ESP_LOGI(TAG, "Parsing fertig.");
+            ESP_LOGI(TAG, "Reading cycle finished.");
+        }
+
+        if (now - state_ts_ > 12000) {
+            ESP_LOGW(TAG, "RX Timeout - No valid frame received");
+        if (now - state_ts_ > 10000) {
+            ESP_LOGW(TAG, "RX Timeout");
+            rx_buffer_.clear();
+            state = UM_IDLE;
         }
     }
 }
+
+}  // namespace ultramaxx
+}  // namespace esphome
+} // namespace ultramaxx
+} // namespace esphome
