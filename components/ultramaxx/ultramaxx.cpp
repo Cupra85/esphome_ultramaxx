@@ -22,12 +22,9 @@ float UltraMaXXComponent::decode_bcd(std::vector<uint8_t> &data, size_t start, s
     return value;
 }
 
-void UltraMaXXComponent::setup() {
-    ESP_LOGI(TAG, "UltraMaXX Component gestartet");
-}
+void UltraMaXXComponent::setup() { ESP_LOGI(TAG, "UltraMaXX gestartet"); }
 
 void UltraMaXXComponent::update() {
-    ESP_LOGI(TAG, "=== UPDATE START ===");
     this->parent_->set_baud_rate(2400);
     this->parent_->set_parity(uart::UART_CONFIG_PARITY_NONE);
     this->parent_->load_settings();
@@ -46,10 +43,7 @@ void UltraMaXXComponent::loop() {
             this->write_array(&b, 1);
             last_send_ = now;
         }
-        if (now - wake_start_ > 2200) {
-            state = UM_WAIT;
-            state_ts_ = now;
-        }
+        if (now - wake_start_ > 2200) { state = UM_WAIT; state_ts_ = now; }
     }
 
     if (state == UM_WAIT && now - state_ts_ > 350) {
@@ -80,55 +74,44 @@ void UltraMaXXComponent::loop() {
             }
         }
 
-        // Frame fertig (nach 1 Sekunde Stille)
-        if (rx_buffer_.size() > 20 && millis() - last_rx_byte_ > 1000) {
+        if (rx_buffer_.size() > 10 && millis() - last_rx_byte_ > 1000) {
             auto &f = rx_buffer_;
-            ESP_LOGI(TAG, "Frame mit %d Bytes wird geparst...", f.size());
+            ESP_LOGI(TAG, "Suche Werte in %d Bytes...", f.size());
 
             for (size_t i = 0; i + 4 < f.size(); i++) {
-                // 1. Seriennummer: 0C 78 (4 Byte BCD)
+                // SERIAL (0C 78)
                 if (f[i] == 0x0C && f[i+1] == 0x78) {
-                    if (serial_number_) serial_number_->publish_state(decode_bcd(f, i+2, 4));
+                    float sn = decode_bcd(f, i+2, 4);
+                    if (serial_number_) serial_number_->publish_state(sn);
+                    ESP_LOGI(TAG, "-> SN gefunden: %.0f", sn);
                 }
-                // 2. Energie: 04 06 (4 Byte Binär oder BCD, wir nehmen Binär laut Log CC 5E)
-                else if (f[i] == 0x04 && f[i+1] == 0x06) {
+                // ENERGY (04 06) - Maskiere MSB (0x04 oder 0x84)
+                if ((f[i] & 0x7F) == 0x04 && f[i+1] == 0x06) {
                     uint32_t v = (uint32_t)f[i+2] | (uint32_t)f[i+3]<<8 | (uint32_t)f[i+4]<<16 | (uint32_t)f[i+5]<<24;
                     if (total_energy_) total_energy_->publish_state(v * 0.01f);
-                    ESP_LOGD(TAG, "Energie gefunden");
+                    ESP_LOGI(TAG, "-> Energie gefunden: %.2f", v * 0.01f);
                 }
-                // 3. Volumen: 0C 14 (4 Byte BCD)
-                else if (f[i] == 0x0C && f[i+1] == 0x14) {
-                    if (total_volume_) total_volume_->publish_state(decode_bcd(f, i+2, 4) * 0.01f);
-                    ESP_LOGD(TAG, "Volumen gefunden");
+                // VOLUME (0C 14)
+                if (f[i] == 0x0C && f[i+1] == 0x14) {
+                    float vol = decode_bcd(f, i+2, 4) * 0.01f;
+                    if (total_volume_) total_volume_->publish_state(vol);
+                    ESP_LOGI(TAG, "-> Volumen gefunden: %.2f", vol);
                 }
-                // 4. Vorlauf: 0A 5A (2 Byte Binär)
-                else if (f[i] == 0x0A && f[i+1] == 0x5A) {
+                // FLOW (0A 5A)
+                if (f[i] == 0x0A && f[i+1] == 0x5A) {
                     int16_t t = (int16_t)f[i+2] | (int16_t)f[i+3]<<8;
                     if (temp_flow_) temp_flow_->publish_state(t * 0.1f);
-                    ESP_LOGD(TAG, "Vorlauf gefunden");
+                    ESP_LOGI(TAG, "-> Vorlauf gefunden: %.1f", t * 0.1f);
                 }
-                // 5. Rücklauf: 0A 5E (2 Byte Binär)
-                else if (f[i] == 0x0A && f[i+1] == 0x5E) {
+                // RETURN (0A 5E)
+                if (f[i] == 0x0A && f[i+1] == 0x5E) {
                     int16_t t = (int16_t)f[i+2] | (int16_t)f[i+3]<<8;
                     if (temp_return_) temp_return_->publish_state(t * 0.1f);
-                    ESP_LOGD(TAG, "Rücklauf gefunden");
-                }
-                // 6. Delta T: 0B 61 (3 Byte Binär)
-                else if (f[i] == 0x0B && f[i+1] == 0x61) {
-                    uint32_t td = (uint32_t)f[i+2] | (uint32_t)f[i+3]<<8 | (uint32_t)f[i+4]<<16;
-                    if (temp_diff_) temp_diff_->publish_state(td * 0.01f);
-                    ESP_LOGD(TAG, "DeltaT gefunden");
-                }
-                // 7. Leistung: 3B 2D (3 Byte Binär)
-                else if (f[i] == 0x3B && f[i+1] == 0x2D) {
-                    uint32_t p = (uint32_t)f[i+2] | (uint32_t)f[i+3]<<8 | (uint32_t)f[i+4]<<16;
-                    if (current_power_ && p != 0x999999) current_power_->publish_state((float)p);
-                    ESP_LOGD(TAG, "Leistung gefunden");
+                    ESP_LOGI(TAG, "-> Ruecklauf gefunden: %.1f", t * 0.1f);
                 }
             }
             rx_buffer_.clear();
             state = UM_IDLE;
-            ESP_LOGI(TAG, "Parsing abgeschlossen.");
         }
     }
 }
