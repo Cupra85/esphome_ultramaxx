@@ -16,13 +16,9 @@ enum UMState {
 
 static UMState state = UM_IDLE;
 
-// ------------------------------------------------
-// BCD decode
-// ------------------------------------------------
 float UltraMaXXComponent::decode_bcd(std::vector<uint8_t> &data, size_t start, size_t len) {
   float value = 0;
   float mul = 1;
-
   for(size_t i=0;i<len;i++){
     uint8_t b=data[start+i];
     value += (b & 0x0F) * mul; mul*=10;
@@ -30,8 +26,6 @@ float UltraMaXXComponent::decode_bcd(std::vector<uint8_t> &data, size_t start, s
   }
   return value;
 }
-
-// ------------------------------------------------
 
 void UltraMaXXComponent::setup() {
   ESP_LOGI(TAG,"UltraMaXX component started");
@@ -73,7 +67,7 @@ void UltraMaXXComponent::loop() {
     }
   }
 
-  // SWITCH
+  // SWITCH UART
   if(state==UM_WAIT && now-state_ts_>350){
 
     ESP_LOGI(TAG,"Switch to 2400 8E1");
@@ -107,7 +101,7 @@ void UltraMaXXComponent::loop() {
     state_ts_=millis();
   }
 
-  // RX
+  // RX PARSER
   if(state==UM_RX){
 
     while(this->available()){
@@ -119,11 +113,7 @@ void UltraMaXXComponent::loop() {
 
     if(rx_buffer_.size()>10 && rx_buffer_.back()==0x16){
 
-      ESP_LOGI(TAG,"Frame komplett -> record parsing");
-
       auto &f = rx_buffer_;
-
-      // CI Field ist nach 68 L L 68 A C CI -> index 6
       size_t ptr = 7;
 
       while(ptr+2 < f.size()){
@@ -137,51 +127,44 @@ void UltraMaXXComponent::loop() {
           case 0x02: len=1; break;
           case 0x03: len=2; break;
           case 0x04: len=4; break;
-          case 0x05: len=4; break;
-          case 0x06: len=6; break;
-          case 0x07: len=8; break;
-          case 0x0C: len=4; break;
-          case 0x0B: len=3; break;
-          case 0x0A: len=2; break;
           default: len=0; break;
         }
 
         if(ptr+len >= f.size()) break;
 
-        // -------- SERIAL --------
-        if(serial_number_ && DIF==0x0C && VIF==0x78){
-          float sn=decode_bcd(f,ptr,4);
-          serial_number_->publish_state(sn);
+        // SERIAL 0478
+        if(serial_number_ && DIF==0x04 && VIF==0x78){
+          serial_number_->publish_state(decode_bcd(f,ptr,4));
         }
 
-        // -------- ENERGY --------
+        // ENERGY 0406
         if(total_energy_ && DIF==0x04 && VIF==0x06){
           total_energy_->publish_state(decode_bcd(f,ptr,4)/1000.0);
         }
 
-        // -------- VOLUME --------
-        if(total_volume_ && DIF==0x0C && VIF==0x14){
+        // VOLUME 0413
+        if(total_volume_ && DIF==0x04 && VIF==0x13){
           total_volume_->publish_state(decode_bcd(f,ptr,4)/1000.0);
         }
 
-        // -------- POWER --------
-        if(current_power_ && DIF==0x3B && VIF==0x2D){
-          current_power_->publish_state(decode_bcd(f,ptr,3)/10.0);
+        // POWER 042B
+        if(current_power_ && DIF==0x04 && VIF==0x2B){
+          current_power_->publish_state(decode_bcd(f,ptr,4));
         }
 
-        // -------- FLOW TEMP --------
-        if(temp_flow_ && DIF==0x0A && VIF==0x5A){
-          temp_flow_->publish_state(decode_bcd(f,ptr,2)/10.0);
+        // FLOW TEMP 025B
+        if(temp_flow_ && DIF==0x02 && VIF==0x5B){
+          temp_flow_->publish_state(decode_bcd(f,ptr,2));
         }
 
-        // -------- RETURN TEMP --------
-        if(temp_return_ && DIF==0x0A && VIF==0x5E){
-          temp_return_->publish_state(decode_bcd(f,ptr,2)/10.0);
+        // RETURN TEMP 025F
+        if(temp_return_ && DIF==0x02 && VIF==0x5F){
+          temp_return_->publish_state(decode_bcd(f,ptr,2));
         }
 
-        // -------- DELTA T --------
-        if(temp_diff_ && DIF==0x0B && VIF==0x61){
-          temp_diff_->publish_state(decode_bcd(f,ptr,3)/100.0);
+        // DELTA T 0261
+        if(temp_diff_ && DIF==0x02 && VIF==0x61){
+          temp_diff_->publish_state(decode_bcd(f,ptr,2)/100.0);
         }
 
         ptr += len;
