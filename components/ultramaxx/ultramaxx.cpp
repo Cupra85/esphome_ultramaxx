@@ -15,26 +15,25 @@ enum UMState {
 };
 
 static UMState state = UM_IDLE;
-static uint32_t last_rx_byte = 0;
 
 float UltraMaXXComponent::decode_bcd(std::vector<uint8_t> &data, size_t start, size_t len) {
   float value = 0;
   float mul = 1;
-  for (size_t i = 0; i < len; i++) {
-    uint8_t b = data[start + i];
-    value += (b & 0x0F) * mul; mul *= 10;
-    value += ((b >> 4) & 0x0F) * mul; mul *= 10;
+  for(size_t i=0;i<len;i++){
+    uint8_t b=data[start+i];
+    value += (b & 0x0F) * mul; mul*=10;
+    value += ((b>>4)&0x0F) * mul; mul*=10;
   }
   return value;
 }
 
 void UltraMaXXComponent::setup() {
-  ESP_LOGI(TAG, "UltraMaXX component started");
+  ESP_LOGI(TAG,"UltraMaXX component started");
 }
 
 void UltraMaXXComponent::update() {
 
-  ESP_LOGI(TAG, "=== READ START ===");
+  ESP_LOGI(TAG,"=== READ START ===");
 
   this->parent_->set_baud_rate(2400);
   this->parent_->set_parity(uart::UART_CONFIG_PARITY_NONE);
@@ -49,140 +48,138 @@ void UltraMaXXComponent::update() {
 
 void UltraMaXXComponent::loop() {
 
-  uint32_t now = millis();
+  uint32_t now=millis();
 
   // WAKEUP
-  if (state == UM_WAKEUP) {
+  if(state==UM_WAKEUP){
 
-    if (now - last_send_ > 15) {
+    if(now-last_send_>15){
       uint8_t buf[20];
-      for (int i = 0; i < 20; i++) buf[i] = 0x55;
-      this->write_array(buf, 20);
-      last_send_ = now;
+      for(int i=0;i<20;i++) buf[i]=0x55;
+      this->write_array(buf,20);
+      last_send_=now;
     }
 
-    if (now - wake_start_ > 2200) {
-      ESP_LOGI(TAG, "Wakeup end");
-      state = UM_WAIT;
-      state_ts_ = now;
+    if(now-wake_start_>2200){
+      ESP_LOGI(TAG,"Wakeup end");
+      state=UM_WAIT;
+      state_ts_=now;
     }
   }
 
   // SWITCH UART
-  if (state == UM_WAIT && now - state_ts_ > 350) {
+  if(state==UM_WAIT && now-state_ts_>350){
 
-    ESP_LOGI(TAG, "Switch to 2400 8E1");
+    ESP_LOGI(TAG,"Switch to 2400 8E1");
 
     this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
     this->parent_->load_settings();
 
     uint8_t dummy;
-    while (this->available()) this->read_byte(&dummy);
+    while(this->available()) this->read_byte(&dummy);
 
-    uint8_t reset[] = {0x10, 0x40, 0xFE, 0x3E, 0x16};
-    this->write_array(reset, sizeof(reset));
+    uint8_t reset[]={0x10,0x40,0xFE,0x3E,0x16};
+    this->write_array(reset,sizeof(reset));
     this->flush();
 
-    ESP_LOGI(TAG, "SND_NKE gesendet");
+    ESP_LOGI(TAG,"SND_NKE gesendet");
 
-    state = UM_SEND;
-    state_ts_ = millis();
+    state=UM_SEND;
+    state_ts_=millis();
   }
 
-  // REQUEST FULL DATA
-  if (state == UM_SEND && millis() - state_ts_ > 50) {
+  // REQUEST
+  if(state==UM_SEND && millis()-state_ts_>50){
 
-    uint8_t req[] = {0x10, 0x7B, 0xFE, 0x79, 0x16};
-    this->write_array(req, sizeof(req));
+    uint8_t req[]={0x10,0x5B,0xFE,0x59,0x16};
+    this->write_array(req,sizeof(req));
     this->flush();
 
-    ESP_LOGI(TAG, "REQ_UD2 gesendet");
+    ESP_LOGI(TAG,"SND_UD Init gesendet");
 
-    state = UM_RX;
-    state_ts_ = millis();
-    last_rx_byte = millis();
+    state=UM_RX;
+    state_ts_=millis();
   }
 
-  // RX
-  if (state == UM_RX) {
+  // RX PARSER
+  if(state==UM_RX){
 
-    while (this->available()) {
+    while(this->available()){
       uint8_t c;
-      if (this->read_byte(&c)) {
+      if(this->read_byte(&c)){
         rx_buffer_.push_back(c);
-        last_rx_byte = millis();
       }
     }
 
-    // ⭐ Frame fertig wenn 1s keine neuen Bytes
-    if (rx_buffer_.size() > 10 && millis() - last_rx_byte > 1000) {
+    if(rx_buffer_.size()>10 && rx_buffer_.back()==0x16){
 
       auto &f = rx_buffer_;
+      size_t ptr = 7;
 
-      ESP_LOGI(TAG, "Frame size: %d", f.size());
+      while(ptr+2 < f.size()){
 
-      for (size_t i = 0; i + 6 < f.size(); i++) {
+        uint8_t DIF = f[ptr++];
+        uint8_t VIF = f[ptr++];
 
-        // SERIAL 0C78
-        if (serial_number_ && f[i] == 0x0C && f[i + 1] == 0x78) {
-          serial_number_->publish_state(decode_bcd(f, i + 2, 4));
+        int len = 0;
+
+        switch(DIF & 0x0F){
+          case 0x02: len=1; break;
+          case 0x03: len=2; break;
+          case 0x04: len=4; break;
+          default: len=0; break;
+        }
+
+        if(ptr+len >= f.size()) break;
+
+        // SERIAL 0478
+        if(serial_number_ && DIF==0x04 && VIF==0x78){
+          serial_number_->publish_state(decode_bcd(f,ptr,4));
         }
 
         // ENERGY 0406
-        if (total_energy_ && f[i] == 0x04 && f[i + 1] == 0x06) {
-          uint32_t v = f[i + 2] | (f[i + 3] << 8) | (f[i + 4] << 16) | (f[i + 5] << 24);
-          total_energy_->publish_state(v / 1000.0f);
+        if(total_energy_ && DIF==0x04 && VIF==0x06){
+          total_energy_->publish_state(decode_bcd(f,ptr,4)/1000.0);
         }
 
-        // VOLUME 0C14
-        if (total_volume_ && f[i] == 0x0C && f[i + 1] == 0x14) {
-          uint32_t v = f[i + 2] | (f[i + 3] << 8) | (f[i + 4] << 16) | (f[i + 5] << 24);
-          total_volume_->publish_state(v / 1000.0f);
+        // VOLUME 0413
+        if(total_volume_ && DIF==0x04 && VIF==0x13){
+          total_volume_->publish_state(decode_bcd(f,ptr,4)/1000.0);
         }
 
-        // POWER 3B2D
-        if (current_power_ && f[i] == 0x3B && f[i + 1] == 0x2D) {
-          uint32_t p = f[i + 2] | (f[i + 3] << 8) | (f[i + 4] << 16);
-          current_power_->publish_state((float)p);
+        // POWER 042B
+        if(current_power_ && DIF==0x04 && VIF==0x2B){
+          current_power_->publish_state(decode_bcd(f,ptr,4));
         }
 
-        // FLOW TEMP 0A5A
-        if (temp_flow_ && f[i] == 0x0A && f[i + 1] == 0x5A) {
-          uint16_t t = f[i + 2] | (f[i + 3] << 8);
-          temp_flow_->publish_state(t / 100.0f);
+        // FLOW TEMP 025B
+        if(temp_flow_ && DIF==0x02 && VIF==0x5B){
+          temp_flow_->publish_state(decode_bcd(f,ptr,2));
         }
 
-        // RETURN TEMP 0A5E
-        if (temp_return_ && f[i] == 0x0A && f[i + 1] == 0x5E) {
-          uint16_t t = f[i + 2] | (f[i + 3] << 8);
-          temp_return_->publish_state(t / 100.0f);
+        // RETURN TEMP 025F
+        if(temp_return_ && DIF==0x02 && VIF==0x5F){
+          temp_return_->publish_state(decode_bcd(f,ptr,2));
         }
 
-        // DELTA T 0B61
-        if (temp_diff_ && f[i] == 0x0B && f[i + 1] == 0x61) {
-          uint32_t t = f[i + 2] | (f[i + 3] << 8) | (f[i + 4] << 16);
-          temp_diff_->publish_state(t / 100.0f);
+        // DELTA T 0261
+        if(temp_diff_ && DIF==0x02 && VIF==0x61){
+          temp_diff_->publish_state(decode_bcd(f,ptr,2)/100.0);
         }
 
-        // DATE/TIME 046D
-        if (meter_time_ && f[i] == 0x04 && f[i + 1] == 0x6D) {
-          char buf[32];
-          sprintf(buf, "%02X%02X%02X%02X", f[i + 2], f[i + 3], f[i + 4], f[i + 5]);
-          meter_time_->publish_state(buf);
-        }
+        ptr += len;
       }
 
       rx_buffer_.clear();
-      state = UM_IDLE;
+      state=UM_IDLE;
     }
 
-    if (millis() - state_ts_ > 12000) {
-      ESP_LOGW(TAG, "RX Timeout");
+    if(millis()-state_ts_>6000){
       rx_buffer_.clear();
-      state = UM_IDLE;
+      state=UM_IDLE;
     }
   }
 }
 
-}  // namespace ultramaxx
-}  // namespace esphome
+} // namespace ultramaxx
+} // namespace esphome
