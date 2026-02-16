@@ -16,16 +16,7 @@ enum UMState {
 
 static UMState state = UM_IDLE;
 
-static uint32_t le_u32(std::vector<uint8_t> &d, size_t i){
-  return (uint32_t)d[i] |
-         ((uint32_t)d[i+1]<<8) |
-         ((uint32_t)d[i+2]<<16) |
-         ((uint32_t)d[i+3]<<24);
-}
-
-static uint16_t le_u16(std::vector<uint8_t> &d, size_t i){
-  return (uint16_t)d[i] | ((uint16_t)d[i+1]<<8);
-}
+static uint32_t last_rx_byte = 0;   // ⭐ NEU
 
 float UltraMaXXComponent::decode_bcd(std::vector<uint8_t> &data, size_t start, size_t len) {
   float value=0;
@@ -61,6 +52,7 @@ void UltraMaXXComponent::loop(){
 
   uint32_t now=millis();
 
+  // WAKEUP
   if(state==UM_WAKEUP){
 
     if(now-last_send_>15){
@@ -77,6 +69,7 @@ void UltraMaXXComponent::loop(){
     }
   }
 
+  // SWITCH UART
   if(state==UM_WAIT && now-state_ts_>350){
 
     ESP_LOGI(TAG,"Switch to 2400 8E1");
@@ -97,6 +90,7 @@ void UltraMaXXComponent::loop(){
     state_ts_=millis();
   }
 
+  // REQUEST
   if(state==UM_SEND && millis()-state_ts_>50){
 
     uint8_t req[]={0x10,0x5B,0xFE,0x59,0x16};
@@ -107,18 +101,27 @@ void UltraMaXXComponent::loop(){
 
     state=UM_RX;
     state_ts_=millis();
+    last_rx_byte = millis();   // ⭐ START RX TIMER
   }
 
+  // RX PARSER
   if(state==UM_RX){
+
+    bool got=false;
 
     while(this->available()){
       uint8_t c;
       if(this->read_byte(&c)){
         rx_buffer_.push_back(c);
+        last_rx_byte = millis();   // ⭐ JEDES BYTE RESETTET TIMER
+        got=true;
       }
     }
 
-    if(rx_buffer_.size()>10 && rx_buffer_.back()==0x16){
+    // ⭐ WICHTIG: Frame erst auswerten wenn 1 Sek lang KEIN BYTE kam
+    if(rx_buffer_.size()>10 && millis()-last_rx_byte>1000){
+
+      ESP_LOGI(TAG,"RX fertig (%d bytes)", rx_buffer_.size());
 
       auto &f=rx_buffer_;
 
@@ -129,11 +132,13 @@ void UltraMaXXComponent::loop(){
         }
 
         if(total_energy_ && f[i]==0x04 && f[i+1]==0x06){
-          total_energy_->publish_state(le_u32(f,i+2)/1000.0f);
+          uint32_t v = f[i+2] | (f[i+3]<<8) | (f[i+4]<<16) | (f[i+5]<<24);
+          total_energy_->publish_state(v/1000.0f);
         }
 
         if(total_volume_ && f[i]==0x0C && f[i+1]==0x14){
-          total_volume_->publish_state(le_u32(f,i+2)/1000.0f);
+          uint32_t v = f[i+2] | (f[i+3]<<8) | (f[i+4]<<16) | (f[i+5]<<24);
+          total_volume_->publish_state(v/1000.0f);
         }
 
         if(current_power_ && f[i]==0x3B && f[i+1]==0x2D){
@@ -142,25 +147,27 @@ void UltraMaXXComponent::loop(){
         }
 
         if(temp_flow_ && f[i]==0x0A && f[i+1]==0x5A){
-          temp_flow_->publish_state(le_u16(f,i+2)/100.0f);
+          uint16_t t = f[i+2] | (f[i+3]<<8);
+          temp_flow_->publish_state(t/100.0f);
         }
 
         if(temp_return_ && f[i]==0x0A && f[i+1]==0x5E){
-          temp_return_->publish_state(le_u16(f,i+2)/100.0f);
+          uint16_t t = f[i+2] | (f[i+3]<<8);
+          temp_return_->publish_state(t/100.0f);
         }
 
         if(temp_diff_ && f[i]==0x0B && f[i+1]==0x61){
-          temp_diff_->publish_state(le_u32(f,i+2)/100.0f);
+          uint32_t t = f[i+2] | (f[i+3]<<8) | (f[i+4]<<16);
+          temp_diff_->publish_state(t/100.0f);
         }
       }
-
-      ESP_LOGI(TAG,"Frame parsed OK");
 
       rx_buffer_.clear();
       state=UM_IDLE;
     }
 
-    if(millis()-state_ts_>6000){
+    if(millis()-state_ts_>12000){
+      ESP_LOGW(TAG,"RX Timeout");
       rx_buffer_.clear();
       state=UM_IDLE;
     }
