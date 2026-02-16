@@ -12,7 +12,6 @@ UltraMaXXComponent = ultramaxx_ns.class_(
 
 CONF_UART_ID = "uart_id"
 
-# ⭐ eigene Keys definieren (NICHT aus esphome.const importieren!)
 CONF_SERIAL_NUMBER = "serial_number"
 CONF_TOTAL_ENERGY = "total_energy"
 CONF_TOTAL_VOLUME = "total_volume"
@@ -22,7 +21,7 @@ CONF_TEMP_RETURN = "temp_return"
 CONF_TEMP_DIFF = "temp_diff"
 CONF_METER_TIME = "meter_time"
 
-
+# ⭐ RICHTIGES PLATFORM_SCHEMA (ohne sensor.PLATFORM_SCHEMA!)
 PLATFORM_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(UltraMaXXComponent),
@@ -37,7 +36,7 @@ PLATFORM_SCHEMA = cv.Schema(
         cv.Optional(CONF_TEMP_DIFF): sensor.sensor_schema(unit_of_measurement="°C"),
         cv.Optional(CONF_METER_TIME): text_sensor.text_sensor_schema(),
     }
-).extend(cv.polling_component_schema("20s")).extend(sensor.PLATFORM_SCHEMA)
+).extend(cv.polling_component_schema("20s"))
 
 
 async def to_code(config):
