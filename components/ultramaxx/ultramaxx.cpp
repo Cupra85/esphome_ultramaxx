@@ -25,6 +25,7 @@ float UltraMaXXComponent::decode_bcd(std::vector<uint8_t> &data, size_t start, s
 void UltraMaXXComponent::setup() { ESP_LOGI(TAG, "UltraMaXX gestartet"); }
 
 void UltraMaXXComponent::update() {
+    ESP_LOGI(TAG, "=== UPDATE START ===");
     this->parent_->set_baud_rate(2400);
     this->parent_->set_parity(uart::UART_CONFIG_PARITY_NONE);
     this->parent_->load_settings();
@@ -53,16 +54,13 @@ void UltraMaXXComponent::loop() {
         while (this->available()) this->read_byte(&dummy);
         uint8_t reset[] = {0x10, 0x40, 0xFE, 0x3E, 0x16};
         this->write_array(reset, sizeof(reset));
-        state = UM_SEND;
-        state_ts_ = now;
+        state = UM_SEND; state_ts_ = now;
     }
 
     if (state == UM_SEND && now - state_ts_ > 100) {
         uint8_t req[] = {0x10, 0x7B, 0xFE, 0x79, 0x16};
         this->write_array(req, sizeof(req));
-        state = UM_RX;
-        state_ts_ = now;
-        last_rx_byte_ = now;
+        state = UM_RX; state_ts_ = now; last_rx_byte_ = now;
     }
 
     if (state == UM_RX) {
@@ -76,38 +74,40 @@ void UltraMaXXComponent::loop() {
 
         if (rx_buffer_.size() > 10 && millis() - last_rx_byte_ > 1000) {
             auto &f = rx_buffer_;
-            ESP_LOGI(TAG, "Suche Werte in %d Bytes...", f.size());
+            
+            // HEX-DUMP FÜR FEHLERSUCHE
+            std::string hex;
+            char buf[5];
+            for (uint8_t b : f) { sprintf(buf, "%02X ", b); hex += buf; }
+            ESP_LOGI(TAG, "Frame (L=%d): %s", f.size(), hex.c_str());
 
             for (size_t i = 0; i + 4 < f.size(); i++) {
                 // SERIAL (0C 78)
                 if (f[i] == 0x0C && f[i+1] == 0x78) {
-                    float sn = decode_bcd(f, i+2, 4);
-                    if (serial_number_) serial_number_->publish_state(sn);
-                    ESP_LOGI(TAG, "-> SN gefunden: %.0f", sn);
+                    float val = decode_bcd(f, i+2, 4);
+                    if (serial_number_) { serial_number_->publish_state(val); ESP_LOGI(TAG, "SN OK: %.0f", val); }
+                    else { ESP_LOGW(TAG, "SN Sensor fehlt in YAML!"); }
                 }
-                // ENERGY (04 06) - Maskiere MSB (0x04 oder 0x84)
-                if ((f[i] & 0x7F) == 0x04 && f[i+1] == 0x06) {
+                // ENERGIE (04 06)
+                if (f[i] == 0x04 && f[i+1] == 0x06) {
                     uint32_t v = (uint32_t)f[i+2] | (uint32_t)f[i+3]<<8 | (uint32_t)f[i+4]<<16 | (uint32_t)f[i+5]<<24;
-                    if (total_energy_) total_energy_->publish_state(v * 0.01f);
-                    ESP_LOGI(TAG, "-> Energie gefunden: %.2f", v * 0.01f);
+                    if (total_energy_) { total_energy_->publish_state(v * 0.01f); ESP_LOGI(TAG, "Energy OK: %.2f", v * 0.01f); }
+                    else { ESP_LOGW(TAG, "Energy Sensor fehlt in YAML!"); }
                 }
-                // VOLUME (0C 14)
+                // VOLUMEN (0C 14)
                 if (f[i] == 0x0C && f[i+1] == 0x14) {
-                    float vol = decode_bcd(f, i+2, 4) * 0.01f;
-                    if (total_volume_) total_volume_->publish_state(vol);
-                    ESP_LOGI(TAG, "-> Volumen gefunden: %.2f", vol);
+                    float val = decode_bcd(f, i+2, 4) * 0.01f;
+                    if (total_volume_) { total_volume_->publish_state(val); ESP_LOGI(TAG, "Volume OK: %.2f", val); }
                 }
-                // FLOW (0A 5A)
+                // VORLAUF (0A 5A)
                 if (f[i] == 0x0A && f[i+1] == 0x5A) {
                     int16_t t = (int16_t)f[i+2] | (int16_t)f[i+3]<<8;
-                    if (temp_flow_) temp_flow_->publish_state(t * 0.1f);
-                    ESP_LOGI(TAG, "-> Vorlauf gefunden: %.1f", t * 0.1f);
+                    if (temp_flow_) { temp_flow_->publish_state(t * 0.1f); ESP_LOGI(TAG, "Flow OK: %.1f", t * 0.1f); }
                 }
-                // RETURN (0A 5E)
+                // RÜCKLAUF (0A 5E)
                 if (f[i] == 0x0A && f[i+1] == 0x5E) {
                     int16_t t = (int16_t)f[i+2] | (int16_t)f[i+3]<<8;
-                    if (temp_return_) temp_return_->publish_state(t * 0.1f);
-                    ESP_LOGI(TAG, "-> Ruecklauf gefunden: %.1f", t * 0.1f);
+                    if (temp_return_) { temp_return_->publish_state(t * 0.1f); ESP_LOGI(TAG, "Return OK: %.1f", t * 0.1f); }
                 }
             }
             rx_buffer_.clear();
