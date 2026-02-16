@@ -5,7 +5,7 @@ namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
 
-enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
+enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_RX };
 static UMState state = UM_IDLE;
 static bool fcb_toggle = false;
 
@@ -39,6 +39,7 @@ void UltraMaXXComponent::update() {
 void UltraMaXXComponent::loop() {
     uint32_t now = millis();
 
+    // 1. WAKEUP
     if (state == UM_WAKEUP) {
         if (now - last_send_ > 20) {
             uint8_t b = 0x55;
@@ -51,28 +52,19 @@ void UltraMaXXComponent::loop() {
         }
     }
 
-    if (state == UM_WAIT && now - state_ts_ > 350) {
+    // 2. SOFORT REQ_UD2 SENDEN
+    if (state == UM_WAIT && now - state_ts_ > 400) {
         this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
         this->parent_->load_settings();
         
+        // Puffer von Wakeup-Resten befreien
         uint8_t d; while(this->available()) this->read_byte(&d);
         rx_buffer_.clear();
 
-        // SND_NKE an Adresse 0xFE (Broadcast)
-        uint8_t reset[] = {0x10, 0x40, 0xFE, 0x3E, 0x16};
-        this->write_array(reset, sizeof(reset));
-        this->flush();
-        
-        // Wir gehen sofort in den SEND-Status für die Abfrage
-        state = UM_SEND;
-        state_ts_ = now;
-    }
-
-    if (state == UM_SEND && now - state_ts_ > 150) { // Kürzerer Delay
-        uint8_t addr = 0xFE; // Falls das nicht geht, hier mal 0x00 probieren
+        // Direkt REQ_UD2 an Broadcast (0xFE)
         uint8_t ctrl = fcb_toggle ? 0x7B : 0x5B;
-        uint8_t cs = (ctrl + addr) & 0xFF;
-        uint8_t req[] = {0x10, ctrl, addr, cs, 0x16};
+        uint8_t cs = (ctrl + 0xFE) & 0xFF;
+        uint8_t req[] = {0x10, ctrl, 0xFE, cs, 0x16};
         
         this->write_array(req, sizeof(req));
         this->flush();
@@ -81,9 +73,10 @@ void UltraMaXXComponent::loop() {
         state = UM_RX;
         state_ts_ = now;
         last_rx_byte_ = now;
-        ESP_LOGD(TAG, "REQ_UD2 gesendet (CS: %02X)", cs);
+        ESP_LOGI(TAG, "Daten angefordert (REQ_UD2 an FE)...");
     }
 
+    // 3. ANTWORT LESEN
     if (state == UM_RX) {
         while (this->available()) {
             uint8_t c;
@@ -93,23 +86,19 @@ void UltraMaXXComponent::loop() {
             }
         }
 
-        if (!rx_buffer_.empty() && (now - last_rx_byte_ > 800)) {
+        if (!rx_buffer_.empty() && (now - last_rx_byte_ > 1000)) {
             auto &f = rx_buffer_;
             ESP_LOGI(TAG, "Antwort erhalten: %d Bytes", f.size());
             
             for (size_t i = 0; i + 4 < f.size(); i++) {
-                // Serial
+                // Serial (0C 78)
                 if (f[i] == 0x0C && f[i+1] == 0x78) {
                     if (serial_number_) serial_number_->publish_state(decode_bcd(f, i+2, 4));
                 }
-                // Energie
+                // Energie (04 06)
                 else if (f[i] == 0x04 && f[i+1] == 0x06) {
                     uint32_t v = (uint32_t)f[i+2] | (uint32_t)f[i+3]<<8 | (uint32_t)f[i+4]<<16 | (uint32_t)f[i+5]<<24;
                     if (total_energy_) total_energy_->publish_state(v * 0.001f);
-                }
-                // Volumen (BCD)
-                else if (f[i] == 0x0C && f[i+1] == 0x14) {
-                    if (total_volume_) total_volume_->publish_state(decode_bcd(f, i+2, 4) * 0.01f);
                 }
                 // Temperaturen (BCD)
                 else if (f[i] == 0x0A && f[i+1] == 0x5A) {
@@ -123,8 +112,8 @@ void UltraMaXXComponent::loop() {
             state = UM_IDLE;
         }
 
-        if (now - state_ts_ > 8000) {
-            ESP_LOGW(TAG, "Keine Antwort (Timeout)");
+        if (now - state_ts_ > 10000) {
+            ESP_LOGW(TAG, "Timeout - Keine Antwort auf Datenanfrage");
             rx_buffer_.clear();
             state = UM_IDLE;
         }
