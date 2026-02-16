@@ -1,99 +1,112 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import uart, sensor, text_sensor
-from esphome.const import *
+from esphome.const import CONF_ID, CONF_UART_ID
 
 DEPENDENCIES = ["uart"]
-from esphome.const import (
-    CONF_ID, 
-    CONF_UART_ID, 
-    CONF_SERIAL_NUMBER,
-    UNIT_KILOWATT_HOURS,
-    UNIT_CUBIC_METER,
-    UNIT_KILOWATT,
-    UNIT_CELSIUS,
-    DEVICE_CLASS_ENERGY,
-    STATE_CLASS_TOTAL_INCREASING
-)
+AUTO_LOAD = ["sensor", "text_sensor"]
 
-# Namespace muss exakt zur ultramaxx.h passen
 ultramaxx_ns = cg.esphome_ns.namespace("ultramaxx")
+
 UltraMaXXComponent = ultramaxx_ns.class_(
     "UltraMaXXComponent", cg.PollingComponent, uart.UARTDevice
 )
 
-CONF_UART_ID = "uart_id"
+# Eigene Keys als Strings (nicht aus esphome.const importieren!)
+CONF_SERIAL_NUMBER = "serial_number"
+CONF_TOTAL_ENERGY = "total_energy"
+CONF_TOTAL_VOLUME = "total_volume"
+@@ -21,59 +21,61 @@
+CONF_TEMP_DIFF = "temp_diff"
+CONF_METER_TIME = "meter_time"
 
-# ⭐ WICHTIG: PLATFORM_SCHEMA statt CONFIG_SCHEMA
+
 PLATFORM_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(UltraMaXXComponent),
         cv.Required(CONF_UART_ID): cv.use_id(uart.UARTComponent),
-DEPENDENCIES = ["uart"]
-AUTO_LOAD = ["sensor", "text_sensor"]
 
-        cv.Optional("serial_number"): sensor.sensor_schema(),
-        cv.Optional("total_energy"): sensor.sensor_schema(unit_of_measurement="kWh"),
-        cv.Optional("total_volume"): sensor.sensor_schema(unit_of_measurement="m³"),
-        cv.Optional("current_power"): sensor.sensor_schema(unit_of_measurement="kW"),
-        cv.Optional("temp_flow"): sensor.sensor_schema(unit_of_measurement="°C"),
-        cv.Optional("temp_return"): sensor.sensor_schema(unit_of_measurement="°C"),
-        cv.Optional("temp_diff"): sensor.sensor_schema(unit_of_measurement="°C"),
-        cv.Optional("meter_time"): text_sensor.text_sensor_schema(),
+        cv.Optional(CONF_SERIAL_NUMBER): sensor.sensor_schema(),
+        cv.Optional(CONF_TOTAL_ENERGY): sensor.sensor_schema(unit_of_measurement="kWh"),
+        cv.Optional(CONF_TOTAL_VOLUME): sensor.sensor_schema(unit_of_measurement="m³"),
+        cv.Optional(CONF_CURRENT_POWER): sensor.sensor_schema(unit_of_measurement="kW"),
+        cv.Optional(CONF_TEMP_FLOW): sensor.sensor_schema(unit_of_measurement="°C"),
+        cv.Optional(CONF_TEMP_RETURN): sensor.sensor_schema(unit_of_measurement="°C"),
+        cv.Optional(CONF_TEMP_DIFF): sensor.sensor_schema(unit_of_measurement="°C"),
+        cv.Optional(CONF_METER_TIME): text_sensor.text_sensor_schema(),
     }
-).extend(cv.polling_component_schema("20s")).extend(sensor.PLATFORM_SCHEMA)
-# ⭐ WICHTIG: Nutze sensor.sensor_schema() Konstanten für HA Energy Dashboard
-PLATFORM_SCHEMA = sensor.sensor_schema().extend(
+).extend(cv.polling_component_schema("20s"))
+
+# ✅ WICHTIG: ESPHome erwartet hier CONFIG_SCHEMA (nicht PLATFORM_SCHEMA)
+CONFIG_SCHEMA = (
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(UltraMaXXComponent),
             cv.Required(CONF_UART_ID): cv.use_id(uart.UARTComponent),
 
             cv.Optional(CONF_SERIAL_NUMBER): sensor.sensor_schema(),
-            cv.Optional("total_energy"): sensor.sensor_schema(
-                unit_of_measurement=UNIT_KILOWATT_HOURS,
-                device_class=DEVICE_CLASS_ENERGY,
-                state_class=STATE_CLASS_TOTAL_INCREASING,
-                accuracy_decimals=3,
-            ),
-            cv.Optional("total_volume"): sensor.sensor_schema(
-                unit_of_measurement=UNIT_CUBIC_METER,
-                state_class=STATE_CLASS_TOTAL_INCREASING,
-                accuracy_decimals=3,
-            ),
-            cv.Optional("current_power"): sensor.sensor_schema(
-                unit_of_measurement=UNIT_KILOWATT,
-                accuracy_decimals=3,
-            ),
-            cv.Optional("temp_flow"): sensor.sensor_schema(unit_of_measurement=UNIT_CELSIUS),
-            cv.Optional("temp_return"): sensor.sensor_schema(unit_of_measurement=UNIT_CELSIUS),
-            cv.Optional("temp_diff"): sensor.sensor_schema(unit_of_measurement=UNIT_CELSIUS),
-            cv.Optional("meter_time"): text_sensor.text_sensor_schema(),
+            cv.Optional(CONF_TOTAL_ENERGY): sensor.sensor_schema(unit_of_measurement="kWh"),
+            cv.Optional(CONF_TOTAL_VOLUME): sensor.sensor_schema(unit_of_measurement="m³"),
+            cv.Optional(CONF_CURRENT_POWER): sensor.sensor_schema(unit_of_measurement="kW"),
+            cv.Optional(CONF_TEMP_FLOW): sensor.sensor_schema(unit_of_measurement="°C"),
+            cv.Optional(CONF_TEMP_RETURN): sensor.sensor_schema(unit_of_measurement="°C"),
+            cv.Optional(CONF_TEMP_DIFF): sensor.sensor_schema(unit_of_measurement="°C"),
+            cv.Optional(CONF_METER_TIME): text_sensor.text_sensor_schema(),
         }
-    ).extend(cv.polling_component_schema("20s")).extend(uart.UART_DEVICE_SCHEMA)
+    )
+    .extend(cv.polling_component_schema("20s"))
+    .extend(uart.UART_DEVICE_SCHEMA)
 )
 
 async def to_code(config):
+
     parent = await cg.get_variable(config[CONF_UART_ID])
-@@ -37,19 +60,20 @@
+    var = cg.new_Pvariable(config[CONF_ID], parent)
+
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
 
-    # Hilfsfunktion für die Registrierung
-    async def add_sensor(key, fn):
-        if key in config:
-            sens = await sensor.new_sensor(config[key])
-            cg.add(fn(sens))
+    if CONF_SERIAL_NUMBER in config:
+        sens = await sensor.new_sensor(config[CONF_SERIAL_NUMBER])
+        cg.add(var.set_serial_number_sensor(sens))
+        s = await sensor.new_sensor(config[CONF_SERIAL_NUMBER])
+        cg.add(var.set_serial_number_sensor(s))
 
-    await add_sensor("serial_number", var.set_serial_number_sensor)
-    await add_sensor(CONF_SERIAL_NUMBER, var.set_serial_number_sensor)
-    await add_sensor("total_energy", var.set_total_energy_sensor)
-    await add_sensor("total_volume", var.set_total_volume_sensor)
-    await add_sensor("current_power", var.set_current_power_sensor)
-    await add_sensor("temp_flow", var.set_temp_flow_sensor)
-    await add_sensor("temp_return", var.set_temp_return_sensor)
-    await add_sensor("temp_diff", var.set_temp_diff_sensor)
+    if CONF_TOTAL_ENERGY in config:
+        sens = await sensor.new_sensor(config[CONF_TOTAL_ENERGY])
+        cg.add(var.set_total_energy_sensor(sens))
+        s = await sensor.new_sensor(config[CONF_TOTAL_ENERGY])
+        cg.add(var.set_total_energy_sensor(s))
 
-    if "meter_time" in config:
-        ts = await text_sensor.new_text_sensor(config["meter_time"])
-        cg.add(var.set_meter_time_sensor(ts))
+    if CONF_TOTAL_VOLUME in config:
+        sens = await sensor.new_sensor(config[CONF_TOTAL_VOLUME])
+        cg.add(var.set_total_volume_sensor(sens))
+        s = await sensor.new_sensor(config[CONF_TOTAL_VOLUME])
+        cg.add(var.set_total_volume_sensor(s))
+
+    if CONF_CURRENT_POWER in config:
+        sens = await sensor.new_sensor(config[CONF_CURRENT_POWER])
+        cg.add(var.set_current_power_sensor(sens))
+        s = await sensor.new_sensor(config[CONF_CURRENT_POWER])
+        cg.add(var.set_current_power_sensor(s))
+
+    if CONF_TEMP_FLOW in config:
+        sens = await sensor.new_sensor(config[CONF_TEMP_FLOW])
+        cg.add(var.set_temp_flow_sensor(sens))
+        s = await sensor.new_sensor(config[CONF_TEMP_FLOW])
+        cg.add(var.set_temp_flow_sensor(s))
+
+    if CONF_TEMP_RETURN in config:
+        sens = await sensor.new_sensor(config[CONF_TEMP_RETURN])
+        cg.add(var.set_temp_return_sensor(sens))
+        s = await sensor.new_sensor(config[CONF_TEMP_RETURN])
+        cg.add(var.set_temp_return_sensor(s))
+
+    if CONF_TEMP_DIFF in config:
+        sens = await sensor.new_sensor(config[CONF_TEMP_DIFF])
+        cg.add(var.set_temp_diff_sensor(sens))
+        s = await sensor.new_sensor(config[CONF_TEMP_DIFF])
+        cg.add(var.set_temp_diff_sensor(s))
+
+    if CONF_METER_TIME in config:
+        ts = await text_sensor.new_text_sensor(config[CONF_METER_TIME])
