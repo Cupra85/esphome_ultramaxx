@@ -79,58 +79,46 @@ void UltraMaXXComponent::loop() {
             }
         }
 
-        if (rx_buffer_.size() > 20 && millis() - last_rx_byte_ > 800) {
+        if (rx_buffer_.size() > 20 && millis() - last_rx_byte_ > 1000) {
             auto &f = rx_buffer_;
-            ESP_LOGI(TAG, "Frame empfangen (%d Bytes). Starte Parsing...", f.size());
+            ESP_LOGI(TAG, "Frame empfangen: %d Bytes", f.size());
 
             for (size_t i = 0; i + 4 < f.size(); i++) {
-                // SERIAL: 0C 78 (8-stellig BCD)
+                // Seriennummer 0C 78
                 if (f[i] == 0x0C && f[i+1] == 0x78) {
                     if (serial_number_) serial_number_->publish_state(decode_bcd(f, i+2, 4));
-                    i += 5; continue; 
+                    ESP_LOGD(TAG, "Gefunden: Serial");
                 }
-                // ENERGY: 04 06 (4-byte binär)
-                if (f[i] == 0x04 && f[i+1] == 0x06) {
+                // Energie 04 06
+                else if (f[i] == 0x04 && f[i+1] == 0x06) {
                     uint32_t v = (uint32_t)f[i+2] | (uint32_t)f[i+3]<<8 | (uint32_t)f[i+4]<<16 | (uint32_t)f[i+5]<<24;
                     if (total_energy_) total_energy_->publish_state(v * 0.01f);
-                    i += 5; continue;
+                    ESP_LOGD(TAG, "Gefunden: Energie");
                 }
-                // VOLUME: 0C 14 (8-stellig BCD)
-                if (f[i] == 0x0C && f[i+1] == 0x14) {
+                // Volumen 0C 14
+                else if (f[i] == 0x0C && f[i+1] == 0x14) {
                     if (total_volume_) total_volume_->publish_state(decode_bcd(f, i+2, 4) * 0.01f);
-                    i += 5; continue;
+                    ESP_LOGD(TAG, "Gefunden: Volumen");
                 }
-                // FLOW TEMP: 0A 5A (2-byte binär)
-                if (f[i] == 0x0A && f[i+1] == 0x5A) {
+                // Vorlauf 0A 5A
+                else if (f[i] == 0x0A && f[i+1] == 0x5A) {
                     int16_t t = (int16_t)f[i+2] | (int16_t)f[i+3]<<8;
                     if (temp_flow_) temp_flow_->publish_state(t * 0.1f);
-                    i += 3; continue;
+                    ESP_LOGD(TAG, "Gefunden: Vorlauf");
                 }
-                // RETURN TEMP: 0A 5E (2-byte binär)
-                if (f[i] == 0x0A && f[i+1] == 0x5E) {
+                // Rücklauf 0A 5E
+                else if (f[i] == 0x0A && f[i+1] == 0x5E) {
                     int16_t t = (int16_t)f[i+2] | (int16_t)f[i+3]<<8;
                     if (temp_return_) temp_return_->publish_state(t * 0.1f);
-                    i += 3; continue;
+                    ESP_LOGD(TAG, "Gefunden: Rücklauf");
                 }
-                // DELTA T: 0B 61 (3-byte binär)
-                if (f[i] == 0x0B && f[i+1] == 0x61) {
-                    uint32_t t = (uint32_t)f[i+2] | (uint32_t)f[i+3]<<8 | (uint32_t)f[i+4]<<16;
-                    if (temp_diff_) temp_diff_->publish_state(t * 0.01f);
-                    i += 4; continue;
-                }
-                // POWER: 3B 2D (3-byte binär)
-                if (f[i] == 0x3B && f[i+1] == 0x2D) {
-                    uint32_t p = (uint32_t)f[i+2] | (uint32_t)f[i+3]<<8 | (uint32_t)f[i+4]<<16;
-                    if (current_power_ && p != 0x999999) current_power_->publish_state((float)p);
-                    i += 4; continue;
+                // Delta T 0B 61
+                else if (f[i] == 0x0B && f[i+1] == 0x61) {
+                    uint32_t td = (uint32_t)f[i+2] | (uint32_t)f[i+3]<<8 | (uint32_t)f[i+4]<<16;
+                    if (temp_diff_) temp_diff_->publish_state(td * 0.01f);
+                    ESP_LOGD(TAG, "Gefunden: DeltaT");
                 }
             }
-            rx_buffer_.clear();
-            state = UM_IDLE;
-        }
-
-        if (now - state_ts_ > 10000) {
-            ESP_LOGW(TAG, "RX Timeout");
             rx_buffer_.clear();
             state = UM_IDLE;
         }
