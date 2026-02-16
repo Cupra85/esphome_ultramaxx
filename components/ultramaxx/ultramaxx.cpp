@@ -111,63 +111,47 @@ void UltraMaXXComponent::loop() {
       }
     }
 
+    // komplettes Frame erkannt
     if(rx_buffer_.size()>10 && rx_buffer_.back()==0x16){
 
       auto &f = rx_buffer_;
-      size_t ptr = 7;
 
-      while(ptr+2 < f.size()){
+      for(size_t i=0;i+6<f.size();i++){
 
-        uint8_t DIF = f[ptr++];
-        uint8_t VIF = f[ptr++];
-
-        int len = 0;
-
-        switch(DIF & 0x0F){
-          case 0x02: len=1; break;
-          case 0x03: len=2; break;
-          case 0x04: len=4; break;
-          default: len=0; break;
+        // SERIAL (0C 78)
+        if(serial_number_ && f[i]==0x0C && f[i+1]==0x78){
+          serial_number_->publish_state(decode_bcd(f,i+2,4));
         }
 
-        if(ptr+len >= f.size()) break;
-
-        // SERIAL 0478
-        if(serial_number_ && DIF==0x04 && VIF==0x78){
-          serial_number_->publish_state(decode_bcd(f,ptr,4));
+        // ENERGY (04 06)
+        if(total_energy_ && f[i]==0x04 && f[i+1]==0x06){
+          total_energy_->publish_state(decode_bcd(f,i+2,4)/1000.0);
         }
 
-        // ENERGY 0406
-        if(total_energy_ && DIF==0x04 && VIF==0x06){
-          total_energy_->publish_state(decode_bcd(f,ptr,4)/1000.0);
+        // VOLUME (0C 14)
+        if(total_volume_ && f[i]==0x0C && f[i+1]==0x14){
+          total_volume_->publish_state(decode_bcd(f,i+2,4)/1000.0);
         }
 
-        // VOLUME 0413
-        if(total_volume_ && DIF==0x04 && VIF==0x13){
-          total_volume_->publish_state(decode_bcd(f,ptr,4)/1000.0);
+        // POWER (3B 2D)
+        if(current_power_ && f[i]==0x3B && f[i+1]==0x2D){
+          current_power_->publish_state(decode_bcd(f,i+2,3));
         }
 
-        // POWER 042B
-        if(current_power_ && DIF==0x04 && VIF==0x2B){
-          current_power_->publish_state(decode_bcd(f,ptr,4));
+        // FLOW TEMP (0A 5A)
+        if(temp_flow_ && f[i]==0x0A && f[i+1]==0x5A){
+          temp_flow_->publish_state(decode_bcd(f,i+2,2));
         }
 
-        // FLOW TEMP 025B
-        if(temp_flow_ && DIF==0x02 && VIF==0x5B){
-          temp_flow_->publish_state(decode_bcd(f,ptr,2));
+        // RETURN TEMP (0A 5E)
+        if(temp_return_ && f[i]==0x0A && f[i+1]==0x5E){
+          temp_return_->publish_state(decode_bcd(f,i+2,2));
         }
 
-        // RETURN TEMP 025F
-        if(temp_return_ && DIF==0x02 && VIF==0x5F){
-          temp_return_->publish_state(decode_bcd(f,ptr,2));
+        // DELTA T (0B 61)
+        if(temp_diff_ && f[i]==0x0B && f[i+1]==0x61){
+          temp_diff_->publish_state(decode_bcd(f,i+2,3)/100.0);
         }
-
-        // DELTA T 0261
-        if(temp_diff_ && DIF==0x02 && VIF==0x61){
-          temp_diff_->publish_state(decode_bcd(f,ptr,2)/100.0);
-        }
-
-        ptr += len;
       }
 
       rx_buffer_.clear();
