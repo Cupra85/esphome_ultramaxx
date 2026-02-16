@@ -10,7 +10,7 @@ namespace ultramaxx {
 
 class UltraMaXXComponent : public PollingComponent, public uart::UARTDevice {
  public:
-  UltraMaXXComponent(uart::UARTComponent *parent) : uart::UARTDevice(parent) {}
+  UltraMaXXComponent(uart::UARTComponent *parent) : PollingComponent(), uart::UARTDevice(parent) {}
 
   void setup() override;
   void update() override;
@@ -28,6 +28,8 @@ class UltraMaXXComponent : public PollingComponent, public uart::UARTDevice {
 
  protected:
   float decode_bcd(const std::vector<uint8_t> &data, size_t start, size_t len);
+  uint32_t decode_u_le(const std::vector<uint8_t> &data, size_t start, size_t len);
+  bool decode_cp32_datetime_(const std::vector<uint8_t> &data, size_t start, std::string &out);
 
   sensor::Sensor *serial_number_{nullptr};
   sensor::Sensor *total_energy_{nullptr};
@@ -47,5 +49,5 @@ class UltraMaXXComponent : public PollingComponent, public uart::UARTDevice {
   std::vector<uint8_t> rx_buffer_;
 };
 
-} // namespace ultramaxx
-} // namespace esphome
+}  // namespace ultramaxx
+}  // namespace esphome
