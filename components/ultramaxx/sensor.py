@@ -27,12 +27,24 @@ CONFIG_SCHEMA = (
             cv.Required(CONF_UART_ID): cv.use_id(uart.UARTComponent),
 
             cv.Optional(CONF_SERIAL_NUMBER): sensor.sensor_schema(),
-            cv.Optional(CONF_TOTAL_ENERGY): sensor.sensor_schema(unit_of_measurement="MWh", accuracy_decimals=3),
-            cv.Optional(CONF_TOTAL_VOLUME): sensor.sensor_schema(unit_of_measurement="m³", accuracy_decimals=2),
-            cv.Optional(CONF_CURRENT_POWER): sensor.sensor_schema(unit_of_measurement="kW", accuracy_decimals=2),
-            cv.Optional(CONF_TEMP_FLOW): sensor.sensor_schema(unit_of_measurement="°C", accuracy_decimals=1),
-            cv.Optional(CONF_TEMP_RETURN): sensor.sensor_schema(unit_of_measurement="°C", accuracy_decimals=1),
-            cv.Optional(CONF_TEMP_DIFF): sensor.sensor_schema(unit_of_measurement="K", accuracy_decimals=2),
+            cv.Optional(CONF_TOTAL_ENERGY): sensor.sensor_schema(
+                unit_of_measurement="MWh", accuracy_decimals=3
+            ),
+            cv.Optional(CONF_TOTAL_VOLUME): sensor.sensor_schema(
+                unit_of_measurement="m³", accuracy_decimals=2
+            ),
+            cv.Optional(CONF_CURRENT_POWER): sensor.sensor_schema(
+                unit_of_measurement="kW", accuracy_decimals=2
+            ),
+            cv.Optional(CONF_TEMP_FLOW): sensor.sensor_schema(
+                unit_of_measurement="°C", accuracy_decimals=1
+            ),
+            cv.Optional(CONF_TEMP_RETURN): sensor.sensor_schema(
+                unit_of_measurement="°C", accuracy_decimals=1
+            ),
+            cv.Optional(CONF_TEMP_DIFF): sensor.sensor_schema(
+                unit_of_measurement="K", accuracy_decimals=2
+            ),
 
             cv.Optional(CONF_METER_TIME): text_sensor.text_sensor_schema(),
         }
