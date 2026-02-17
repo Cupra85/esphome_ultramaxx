@@ -8,36 +8,30 @@ static const char *const TAG = "ultramaxx";
 enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
 static UMState state = UM_IDLE;
 
-// ---------- Decoder ----------
-
 float UltraMaXXComponent::decode_bcd(const std::vector<uint8_t> &data, size_t start, size_t len) {
-  if (start + len > data.size()) return 0;
-  float value = 0;
+  float v = 0;
   float mul = 1;
   for (size_t i = 0; i < len; i++) {
     uint8_t b = data[start + i];
-    value += (b & 0x0F) * mul; mul *= 10;
-    value += ((b >> 4) & 0x0F) * mul; mul *= 10;
+    v += (b & 0x0F) * mul; mul *= 10;
+    v += ((b >> 4) & 0x0F) * mul; mul *= 10;
   }
-  return value;
-}
-
-uint32_t UltraMaXXComponent::decode_u_le(const std::vector<uint8_t> &data, size_t start, size_t len) {
-  uint32_t v = 0;
-  for (size_t i = 0; i < len; i++)
-    v |= (uint32_t)data[start + i] << (8 * i);
   return v;
 }
 
-// ---------- Setup ----------
-
-void UltraMaXXComponent::setup() {
-  ESP_LOGI(TAG, "UltraMaXX component started");
+uint32_t UltraMaXXComponent::decode_u_le(const std::vector<uint8_t> &d, size_t s, size_t len) {
+  uint32_t v = 0;
+  for (size_t i = 0; i < len; i++)
+    v |= ((uint32_t)d[s+i]) << (8*i);
+  return v;
 }
 
-// ---------- Update ----------
+void UltraMaXXComponent::setup() {
+  ESP_LOGI(TAG, "UltraMaXX started");
+}
 
 void UltraMaXXComponent::update() {
+
   ESP_LOGI(TAG, "=== READ START ===");
 
   this->parent_->set_baud_rate(2400);
@@ -45,18 +39,18 @@ void UltraMaXXComponent::update() {
   this->parent_->load_settings();
 
   rx_buffer_.clear();
+
   wake_start_ = millis();
-  last_send_ = 0;
+  last_send_  = 0;
+
   state = UM_WAKEUP;
 }
-
-// ---------- Loop ----------
 
 void UltraMaXXComponent::loop() {
 
   uint32_t now = millis();
 
-  // RX sammeln
+  // RX immer sammeln
   while (this->available()) {
     uint8_t c;
     if (this->read_byte(&c)) {
@@ -67,24 +61,26 @@ void UltraMaXXComponent::loop() {
     }
   }
 
-  // Wakeup
+  // WAKEUP
   if (state == UM_WAKEUP) {
+
     if (now - last_send_ > 15) {
-      uint8_t buf[20]; memset(buf, 0x55, 20);
-      this->write_array(buf, 20);
+      uint8_t buf[20]; memset(buf,0x55,20);
+      this->write_array(buf,20);
       last_send_ = now;
     }
+
     if (now - wake_start_ > 2200) {
-      ESP_LOGI(TAG, "Wakeup end");
+      ESP_LOGI(TAG,"Wakeup end");
       state = UM_WAIT;
       state_ts_ = now;
     }
   }
 
-  // Switch UART
+  // SWITCH
   if (state == UM_WAIT && now - state_ts_ > 350) {
 
-    ESP_LOGI(TAG, "Switch to 2400 8E1");
+    ESP_LOGI(TAG,"Switch to 2400 8E1");
 
     this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
     this->parent_->load_settings();
@@ -92,7 +88,7 @@ void UltraMaXXComponent::loop() {
     uint8_t d;
     while (this->available()) this->read_byte(&d);
 
-    uint8_t reset[] = {0x10,0x40,0xFE,0x3E,0x16};
+    uint8_t reset[]={0x10,0x40,0xFE,0x3E,0x16};
     this->write_array(reset,sizeof(reset));
     this->flush();
 
@@ -102,13 +98,13 @@ void UltraMaXXComponent::loop() {
     state_ts_ = now;
   }
 
-  // REQ_UD2
-  if (state == UM_SEND && now - state_ts_ > 150) {
+  // REQUEST
+  if (state == UM_SEND && now - state_ts_ > 120) {
 
     uint8_t ctrl = fcb_toggle_ ? 0x7B : 0x5B;
-    uint8_t cs = (ctrl + 0xFE) & 0xFF;
-    uint8_t req[] = {0x10,ctrl,0xFE,cs,0x16};
+    uint8_t cs   = (ctrl + 0xFE) & 0xFF;
 
+    uint8_t req[]={0x10,ctrl,0xFE,cs,0x16};
     this->write_array(req,sizeof(req));
     this->flush();
 
@@ -122,70 +118,57 @@ void UltraMaXXComponent::loop() {
     last_rx_byte_ = now;
   }
 
-  // ----------- NEUER ROBUSTER PARSER -----------
-
+  // RX FRAME DETECTION (NEU!)
   if (state == UM_RX) {
 
-    if (!rx_buffer_.empty() && (now - last_rx_byte_ > 300)) {
+    if (rx_buffer_.size() > 10) {
 
-      auto &f = rx_buffer_;
+      // Suche Startbyte
+      for (size_t s=0; s < rx_buffer_.size()-5; s++) {
 
-      ESP_LOGI(TAG,"Parsing Frame (%d bytes)", f.size());
+        if (rx_buffer_[s] != 0x68) continue;
 
-      size_t ptr = 7; // Header überspringen
+        uint8_t L1 = rx_buffer_[s+1];
+        uint8_t L2 = rx_buffer_[s+2];
 
-      while (ptr + 2 < f.size()) {
+        if (L1 != L2) continue;
 
-        uint8_t DIF = f[ptr++];
+        size_t frame_end = s + L1 + 6;
 
-        // DIF Extensions überspringen
-        while (DIF & 0x80) DIF = f[ptr++];
+        if (frame_end >= rx_buffer_.size()) continue;
 
-        uint8_t VIF = f[ptr++];
+        if (rx_buffer_[frame_end] != 0x16) continue;
 
-        // VIF Extensions überspringen
-        while (VIF == 0xFD || VIF == 0xFB) {
-          VIF = f[ptr++];
+        ESP_LOGI(TAG,"Parsing Frame (%d Bytes)...", L1+6);
+
+        auto &f = rx_buffer_;
+
+        for (size_t i = s; i < frame_end-4; i++) {
+
+          if (f[i]==0x0C && f[i+1]==0x78 && serial_number_)
+            serial_number_->publish_state(decode_bcd(f,i+2,4));
+
+          else if (f[i]==0x04 && f[i+1]==0x06 && total_energy_)
+            total_energy_->publish_state(decode_u_le(f,i+2,4)*0.001f);
+
+          else if (f[i]==0x0C && f[i+1]==0x14 && total_volume_)
+            total_volume_->publish_state(decode_bcd(f,i+2,4)*0.01f);
+
+          else if (f[i]==0x0A && f[i+1]==0x5A && temp_flow_)
+            temp_flow_->publish_state(decode_bcd(f,i+2,2)*0.1f);
+
+          else if (f[i]==0x0A && f[i+1]==0x5E && temp_return_)
+            temp_return_->publish_state(decode_bcd(f,i+2,2)*0.1f);
+
+          else if (f[i]==0x0B && f[i+1]==0x61 && temp_diff_)
+            temp_diff_->publish_state(decode_bcd(f,i+2,3)*0.01f);
         }
 
-        int len = 0;
-        switch (DIF & 0x0F) {
-          case 0x01: len = 1; break;
-          case 0x02: len = 2; break;
-          case 0x03: len = 3; break;
-          case 0x04: len = 4; break;
-          default: break;
-        }
-
-        if (ptr + len > f.size()) break;
-
-        // ---------- MATCHING ----------
-
-        if (serial_number_ && VIF == 0x78 && len == 4)
-          serial_number_->publish_state(decode_bcd(f,ptr,4));
-
-        else if (total_energy_ && VIF == 0x06 && len == 4)
-          total_energy_->publish_state(decode_u_le(f,ptr,4) * 0.001f);
-
-        else if (total_volume_ && VIF == 0x14 && len == 4)
-          total_volume_->publish_state(decode_bcd(f,ptr,4) * 0.01f);
-
-        else if (temp_flow_ && VIF == 0x5A && len == 2)
-          temp_flow_->publish_state(decode_bcd(f,ptr,2) * 0.1f);
-
-        else if (temp_return_ && VIF == 0x5E && len == 2)
-          temp_return_->publish_state(decode_bcd(f,ptr,2) * 0.1f);
-
-        else if (temp_diff_ && VIF == 0x61 && len == 3)
-          temp_diff_->publish_state(decode_bcd(f,ptr,3) * 0.01f);
-
-        ptr += len;
+        rx_buffer_.clear();
+        state = UM_IDLE;
+        ESP_LOGI(TAG,"Update finished.");
+        return;
       }
-
-      rx_buffer_.clear();
-      state = UM_IDLE;
-
-      ESP_LOGI(TAG,"Update finished.");
     }
 
     if (now - state_ts_ > 10000) {
