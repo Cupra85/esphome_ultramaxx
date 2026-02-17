@@ -8,11 +8,10 @@ static const char *const TAG = "ultramaxx";
 enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
 static UMState state = UM_IDLE;
 
-// ------------------------------------------------------------
-// Hilfsfunktionen
-// ------------------------------------------------------------
+// ---------- Decoder ----------
 
 float UltraMaXXComponent::decode_bcd(const std::vector<uint8_t> &data, size_t start, size_t len) {
+  if (start + len > data.size()) return 0;
   float value = 0;
   float mul = 1;
   for (size_t i = 0; i < len; i++) {
@@ -26,15 +25,17 @@ float UltraMaXXComponent::decode_bcd(const std::vector<uint8_t> &data, size_t st
 uint32_t UltraMaXXComponent::decode_u_le(const std::vector<uint8_t> &data, size_t start, size_t len) {
   uint32_t v = 0;
   for (size_t i = 0; i < len; i++)
-    v |= ((uint32_t)data[start + i]) << (8 * i);
+    v |= (uint32_t)data[start + i] << (8 * i);
   return v;
 }
 
-// ------------------------------------------------------------
+// ---------- Setup ----------
 
 void UltraMaXXComponent::setup() {
   ESP_LOGI(TAG, "UltraMaXX component started");
 }
+
+// ---------- Update ----------
 
 void UltraMaXXComponent::update() {
   ESP_LOGI(TAG, "=== READ START ===");
@@ -46,17 +47,16 @@ void UltraMaXXComponent::update() {
   rx_buffer_.clear();
   wake_start_ = millis();
   last_send_ = 0;
-
   state = UM_WAKEUP;
 }
 
-// ------------------------------------------------------------
+// ---------- Loop ----------
 
 void UltraMaXXComponent::loop() {
 
   uint32_t now = millis();
 
-  // RX immer puffern
+  // RX sammeln
   while (this->available()) {
     uint8_t c;
     if (this->read_byte(&c)) {
@@ -67,9 +67,7 @@ void UltraMaXXComponent::loop() {
     }
   }
 
-  // ------------------------------------------------------------
-  // WAKEUP (unverändert)
-  // ------------------------------------------------------------
+  // Wakeup
   if (state == UM_WAKEUP) {
     if (now - last_send_ > 15) {
       uint8_t buf[20]; memset(buf, 0x55, 20);
@@ -83,9 +81,7 @@ void UltraMaXXComponent::loop() {
     }
   }
 
-  // ------------------------------------------------------------
-  // SWITCH UART
-  // ------------------------------------------------------------
+  // Switch UART
   if (state == UM_WAIT && now - state_ts_ > 350) {
 
     ESP_LOGI(TAG, "Switch to 2400 8E1");
@@ -106,9 +102,7 @@ void UltraMaXXComponent::loop() {
     state_ts_ = now;
   }
 
-  // ------------------------------------------------------------
   // REQ_UD2
-  // ------------------------------------------------------------
   if (state == UM_SEND && now - state_ts_ > 150) {
 
     uint8_t ctrl = fcb_toggle_ ? 0x7B : 0x5B;
@@ -128,69 +122,70 @@ void UltraMaXXComponent::loop() {
     last_rx_byte_ = now;
   }
 
-  // ------------------------------------------------------------
-  // PARSER (JETZT KORREKT!)
-  // ------------------------------------------------------------
+  // ----------- NEUER ROBUSTER PARSER -----------
+
   if (state == UM_RX) {
 
-    // Frame komplett?
-    if (!rx_buffer_.empty() &&
-        (now - last_rx_byte_ > 400 || rx_buffer_.back() == 0x16)) {
-
-      ESP_LOGI(TAG,"Parsing Frame (%d Bytes)", rx_buffer_.size());
+    if (!rx_buffer_.empty() && (now - last_rx_byte_ > 300)) {
 
       auto &f = rx_buffer_;
 
-      // ⭐ User Data beginnt nach Byte 7
-      size_t ptr = 7;
+      ESP_LOGI(TAG,"Parsing Frame (%d bytes)", f.size());
+
+      size_t ptr = 7; // Header überspringen
 
       while (ptr + 2 < f.size()) {
 
         uint8_t DIF = f[ptr++];
+
+        // DIF Extensions überspringen
+        while (DIF & 0x80) DIF = f[ptr++];
+
         uint8_t VIF = f[ptr++];
+
+        // VIF Extensions überspringen
+        while (VIF == 0xFD || VIF == 0xFB) {
+          VIF = f[ptr++];
+        }
 
         int len = 0;
         switch (DIF & 0x0F) {
-          case 0x02: len = 1; break;
-          case 0x03: len = 2; break;
+          case 0x01: len = 1; break;
+          case 0x02: len = 2; break;
+          case 0x03: len = 3; break;
           case 0x04: len = 4; break;
-          default: len = 0; break;
+          default: break;
         }
 
         if (ptr + len > f.size()) break;
 
-        // ----------------------------------------------------
-        // MATCHING exakt laut mikrocontroller.net Script
-        // ----------------------------------------------------
+        // ---------- MATCHING ----------
 
-        if (DIF==0x0C && VIF==0x78 && serial_number_)
+        if (serial_number_ && VIF == 0x78 && len == 4)
           serial_number_->publish_state(decode_bcd(f,ptr,4));
 
-        else if (DIF==0x04 && VIF==0x06 && total_energy_)
-          total_energy_->publish_state(decode_u_le(f,ptr,4)*0.001f);
+        else if (total_energy_ && VIF == 0x06 && len == 4)
+          total_energy_->publish_state(decode_u_le(f,ptr,4) * 0.001f);
 
-        else if (DIF==0x0C && VIF==0x14 && total_volume_)
-          total_volume_->publish_state(decode_bcd(f,ptr,4)*0.01f);
+        else if (total_volume_ && VIF == 0x14 && len == 4)
+          total_volume_->publish_state(decode_bcd(f,ptr,4) * 0.01f);
 
-        else if (DIF==0x0B && VIF==0x2D && current_power_)
-          current_power_->publish_state(decode_bcd(f,ptr,3)*0.1f);
+        else if (temp_flow_ && VIF == 0x5A && len == 2)
+          temp_flow_->publish_state(decode_bcd(f,ptr,2) * 0.1f);
 
-        else if (DIF==0x0A && VIF==0x5A && temp_flow_)
-          temp_flow_->publish_state(decode_bcd(f,ptr,2)*0.1f);
+        else if (temp_return_ && VIF == 0x5E && len == 2)
+          temp_return_->publish_state(decode_bcd(f,ptr,2) * 0.1f);
 
-        else if (DIF==0x0A && VIF==0x5E && temp_return_)
-          temp_return_->publish_state(decode_bcd(f,ptr,2)*0.1f);
-
-        else if (DIF==0x0B && VIF==0x61 && temp_diff_)
-          temp_diff_->publish_state(decode_bcd(f,ptr,3)*0.01f);
+        else if (temp_diff_ && VIF == 0x61 && len == 3)
+          temp_diff_->publish_state(decode_bcd(f,ptr,3) * 0.01f);
 
         ptr += len;
       }
 
-      ESP_LOGI(TAG,"Update finished.");
-
       rx_buffer_.clear();
       state = UM_IDLE;
+
+      ESP_LOGI(TAG,"Update finished.");
     }
 
     if (now - state_ts_ > 10000) {
