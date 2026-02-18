@@ -39,7 +39,7 @@ bool UltraMaXXComponent::decode_cp32_datetime_(const std::vector<uint8_t> &data,
 }
 
 void UltraMaXXComponent::setup() {
-  ESP_LOGI(TAG, "UltraMaXX Komponente gestartet");
+  ESP_LOGI(TAG, "UltraMaXX gestartet");
 }
 
 void UltraMaXXComponent::update() {
@@ -56,13 +56,12 @@ void UltraMaXXComponent::update() {
 void UltraMaXXComponent::loop() {
   uint32_t now = millis();
 
-  while (this->available()) {
+  // RX Sammler: Liest alles was kommt in den Buffer
+  while (this->available() > 0) {
     uint8_t c;
     if (this->read_byte(&c)) {
-      if (state == UM_RX) {
-        rx_buffer_.push_back(c);
-        last_rx_byte_ = now;
-      }
+      rx_buffer_.push_back(c);
+      last_rx_byte_ = now;
     }
   }
 
@@ -82,11 +81,13 @@ void UltraMaXXComponent::loop() {
   if (state == UM_WAIT && now - state_ts_ > 400) {
     this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
     this->parent_->load_settings();
+    
     uint8_t d; while (this->available()) this->read_byte(&d);
     uint8_t reset[] = {0x10, 0x40, 0xFE, 0x3E, 0x16};
     this->write_array(reset, 5);
     state = UM_SEND;
     state_ts_ = now;
+    ESP_LOGI(TAG, "SND_NKE gesendet");
   }
 
   if (state == UM_SEND && now - state_ts_ > 200) {
@@ -98,54 +99,80 @@ void UltraMaXXComponent::loop() {
     rx_buffer_.clear();
     state = UM_RX;
     state_ts_ = now;
+    ESP_LOGI(TAG, "REQ_UD2 gesendet");
   }
 
   if (state == UM_RX) {
-    // Wenn Daten vorhanden und seit 250ms Ruhe im UART (Frame-Ende)
-    if (!rx_buffer_.empty() && (now - last_rx_byte_ > 250)) {
+    // Wenn Daten da sind UND seit 300ms keine neuen Bytes kamen -> FRAME VERARBEITEN
+    if (!rx_buffer_.empty() && (now - last_rx_byte_ > 300)) {
+      
+      ESP_LOGI(TAG, "Empfange %d Bytes. Suche M-Bus Header...", rx_buffer_.size());
+
       for (size_t i = 0; i + 10 < rx_buffer_.size(); i++) {
+        // Suche nach M-Bus Start 0x68
         if (rx_buffer_[i] == 0x68 && rx_buffer_[i+3] == 0x68) {
-          ESP_LOGI(TAG, "Parsing Frame (%d Bytes)...", rx_buffer_.size());
           
-          size_t p = i + 19; // Nach M-Bus Header (Log-Position von 0x0C 0x78)
-          size_t end = rx_buffer_.size() - 2;
+          ESP_LOGI(TAG, "M-Bus Header gefunden an Position %d", i);
+          
+          // Wir parsen ab der Identifikationsnummer (Offset 19 laut deinem Log)
+          size_t p = i + 19;
+          size_t end = rx_buffer_.size() - 1;
 
           while (p + 2 < end) {
             uint8_t dif = rx_buffer_[p];
             uint8_t vif = rx_buffer_[p+1];
 
-            if (dif == 0x0C && vif == 0x78) { // Seriennummer (BCD)
+            // Seriennummer: 0x0C 0x78
+            if (dif == 0x0C && vif == 0x78) {
               if (serial_number_) serial_number_->publish_state(decode_bcd_(rx_buffer_, p+2, 4));
               p += 6;
-            } else if (dif == 0x04 && vif == 0x06) { // Energie (Binär CC 5E 00 00 = 24268 Wh)
+            }
+            // Energie: 0x04 0x06 (Binär, dein Log: CC 5E 00 00 -> 24.268 kWh)
+            else if (dif == 0x04 && vif == 0x06) {
               if (total_energy_) total_energy_->publish_state(decode_u_le_(rx_buffer_, p+2, 4) * 0.001f);
               p += 6;
-            } else if (dif == 0x0C && (vif == 0x14 || vif == 0x13)) { // Volumen (BCD)
+            }
+            // Volumen: 0x0C 0x14 (BCD, dein Log: 34 39 16 00 -> 1639.34 Liter/m3?)
+            else if (dif == 0x0C && vif == 0x14) {
               if (total_volume_) total_volume_->publish_state(decode_bcd_(rx_buffer_, p+2, 4) * 0.01f);
               p += 6;
-            } else if (dif == 0x0A && vif == 0x5A) { // Vorlauf (BCD)
+            }
+            // Vorlauf: 0x0A 0x5A
+            else if (dif == 0x0A && vif == 0x5A) {
               if (temp_flow_) temp_flow_->publish_state(decode_bcd_(rx_buffer_, p+2, 2) * 0.1f);
               p += 4;
-            } else if (dif == 0x0A && vif == 0x5E) { // Rücklauf (BCD)
+            }
+            // Rücklauf: 0x0A 0x5E
+            else if (dif == 0x0A && vif == 0x5E) {
               if (temp_return_) temp_return_->publish_state(decode_bcd_(rx_buffer_, p+2, 2) * 0.1f);
               p += 4;
-            } else if (dif == 0x0B && vif == 0x61) { // Differenz (BCD)
+            }
+            // Differenz: 0x0B 0x61
+            else if (dif == 0x0B && vif == 0x61) {
               if (temp_diff_) temp_diff_->publish_state(decode_bcd_(rx_buffer_, p+2, 3) * 0.01f);
               p += 5;
-            } else if (dif == 0x04 && vif == 0x6D) { // Zeit
+            }
+            // Zeit: 0x04 0x6D
+            else if (dif == 0x04 && vif == 0x6D) {
               std::string ts;
               if (meter_time_ && decode_cp32_datetime_(rx_buffer_, p+2, ts)) meter_time_->publish_state(ts);
               p += 6;
-            } else { p++; }
+            }
+            else { p++; }
           }
+          
+          ESP_LOGI(TAG, "Parsing beendet.");
           rx_buffer_.clear();
           state = UM_IDLE;
           return;
         }
       }
+      // Wenn wir hier landen, wurden Daten empfangen, aber kein 0x68 Header gefunden
+      rx_buffer_.clear();
     }
-    if (now - state_ts_ > 6000) {
-      ESP_LOGW(TAG, "Timeout - Buffer: %d Bytes", rx_buffer_.size());
+
+    if (now - state_ts_ > 8000) {
+      ESP_LOGW(TAG, "Timeout erreicht. Letzter Byte-Empfang vor %d ms", (int)(now - last_rx_byte_));
       rx_buffer_.clear();
       state = UM_IDLE;
     }
