@@ -32,15 +32,14 @@ bool UltraMaXXComponent::decode_cp32_datetime_(const std::vector<uint8_t> &data,
   if (start + 4 > data.size()) return false;
   char buf[32];
   sprintf(buf, "%02u.%02u.20%02u %02u:%02u",
-    data[start+2] & 0x1F, data[start+3] & 0x0F, 
-    (data[start+3] >> 4) | ((data[start+2] >> 5) << 4), 
+    data[start+2] & 0x1F, data[start+3] & 0x0F, (data[start+3] >> 4) | ((data[start+2] >> 5) << 4), 
     data[start+1] & 0x1F, data[start] & 0x3F);
   out = buf;
   return true;
 }
 
 void UltraMaXXComponent::setup() {
-  ESP_LOGI(TAG, "UltraMaXX component started");
+  ESP_LOGI(TAG, "UltraMaXX Komponente gestartet");
 }
 
 void UltraMaXXComponent::update() {
@@ -52,7 +51,6 @@ void UltraMaXXComponent::update() {
   wake_start_ = millis();
   last_send_ = 0;
   state = UM_WAKEUP;
-  ESP_LOGI(TAG, "Starte Wakeup-Sequenz...");
 }
 
 void UltraMaXXComponent::loop() {
@@ -75,22 +73,18 @@ void UltraMaXXComponent::loop() {
       last_send_ = now;
     }
     if (now - wake_start_ > 2200) {
-      ESP_LOGI(TAG, "Wakeup Ende -> Warte auf Umschaltung");
       state = UM_WAIT;
       state_ts_ = now;
+      ESP_LOGI(TAG, "Wakeup fertig");
     }
   }
 
   if (state == UM_WAIT && now - state_ts_ > 400) {
     this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
     this->parent_->load_settings();
-    
-    // Buffer leeren
-    uint8_t dummy; while (this->available()) this->read_byte(&dummy);
-
+    uint8_t d; while (this->available()) this->read_byte(&d);
     uint8_t reset[] = {0x10, 0x40, 0xFE, 0x3E, 0x16};
-    this->write_array(reset, sizeof(reset));
-    ESP_LOGI(TAG, "SND_NKE gesendet");
+    this->write_array(reset, 5);
     state = UM_SEND;
     state_ts_ = now;
   }
@@ -99,8 +93,7 @@ void UltraMaXXComponent::loop() {
     uint8_t ctrl = fcb_toggle_ ? 0x7B : 0x5B;
     uint8_t cs = (ctrl + 0xFE) & 0xFF;
     uint8_t req[] = {0x10, ctrl, 0xFE, cs, 0x16};
-    this->write_array(req, sizeof(req));
-    ESP_LOGI(TAG, "REQ_UD2 gesendet, warte auf Daten...");
+    this->write_array(req, 5);
     fcb_toggle_ = !fcb_toggle_;
     rx_buffer_.clear();
     state = UM_RX;
@@ -108,53 +101,42 @@ void UltraMaXXComponent::loop() {
   }
 
   if (state == UM_RX) {
-    // Wenn wir Daten haben und seit 200ms nichts mehr kam, ist der Frame wohl fertig
-    if (!rx_buffer_.empty() && (now - last_rx_byte_ > 200)) {
-      
+    // Wenn Daten vorhanden und seit 250ms Ruhe im UART (Frame-Ende)
+    if (!rx_buffer_.empty() && (now - last_rx_byte_ > 250)) {
       for (size_t i = 0; i + 10 < rx_buffer_.size(); i++) {
-        // Suche nach 0x68 L L 0x68
-        if (rx_buffer_[i] == 0x68 && rx_buffer_[i+3] == 0x68 && rx_buffer_[i+1] == rx_buffer_[i+2]) {
+        if (rx_buffer_[i] == 0x68 && rx_buffer_[i+3] == 0x68) {
+          ESP_LOGI(TAG, "Parsing Frame (%d Bytes)...", rx_buffer_.size());
           
-          uint8_t L = rx_buffer_[i+1];
-          ESP_LOGI(TAG, "M-Bus Frame mit Länge %d gefunden!", L);
+          size_t p = i + 19; // Nach M-Bus Header (Log-Position von 0x0C 0x78)
+          size_t end = rx_buffer_.size() - 2;
 
-          size_t p = i + 19; 
-          size_t end = i + L + 4; // Ende vor CS
-
-          while (p + 2 < rx_buffer_.size() && p < end) {
+          while (p + 2 < end) {
             uint8_t dif = rx_buffer_[p];
             uint8_t vif = rx_buffer_[p+1];
 
-            if (dif == 0x0C && vif == 0x78) {
+            if (dif == 0x0C && vif == 0x78) { // Seriennummer (BCD)
               if (serial_number_) serial_number_->publish_state(decode_bcd_(rx_buffer_, p+2, 4));
               p += 6;
-            }
-            else if (dif == 0x04 && vif == 0x06) {
+            } else if (dif == 0x04 && vif == 0x06) { // Energie (Binär CC 5E 00 00 = 24268 Wh)
               if (total_energy_) total_energy_->publish_state(decode_u_le_(rx_buffer_, p+2, 4) * 0.001f);
               p += 6;
-            }
-            else if (dif == 0x0C && (vif == 0x14 || vif == 0x13)) {
+            } else if (dif == 0x0C && (vif == 0x14 || vif == 0x13)) { // Volumen (BCD)
               if (total_volume_) total_volume_->publish_state(decode_bcd_(rx_buffer_, p+2, 4) * 0.01f);
               p += 6;
-            }
-            else if (dif == 0x0A && vif == 0x5A) {
+            } else if (dif == 0x0A && vif == 0x5A) { // Vorlauf (BCD)
               if (temp_flow_) temp_flow_->publish_state(decode_bcd_(rx_buffer_, p+2, 2) * 0.1f);
               p += 4;
-            }
-            else if (dif == 0x0A && vif == 0x5E) {
+            } else if (dif == 0x0A && vif == 0x5E) { // Rücklauf (BCD)
               if (temp_return_) temp_return_->publish_state(decode_bcd_(rx_buffer_, p+2, 2) * 0.1f);
               p += 4;
-            }
-            else if (dif == 0x0B && vif == 0x61) {
+            } else if (dif == 0x0B && vif == 0x61) { // Differenz (BCD)
               if (temp_diff_) temp_diff_->publish_state(decode_bcd_(rx_buffer_, p+2, 3) * 0.01f);
               p += 5;
-            }
-            else if (dif == 0x04 && vif == 0x6D) {
+            } else if (dif == 0x04 && vif == 0x6D) { // Zeit
               std::string ts;
               if (meter_time_ && decode_cp32_datetime_(rx_buffer_, p+2, ts)) meter_time_->publish_state(ts);
               p += 6;
-            }
-            else { p++; }
+            } else { p++; }
           }
           rx_buffer_.clear();
           state = UM_IDLE;
@@ -162,9 +144,8 @@ void UltraMaXXComponent::loop() {
         }
       }
     }
-
-    if (now - state_ts_ > 5000) {
-      ESP_LOGW(TAG, "RX Timeout. Buffer Größe: %d", rx_buffer_.size());
+    if (now - state_ts_ > 6000) {
+      ESP_LOGW(TAG, "Timeout - Buffer: %d Bytes", rx_buffer_.size());
       rx_buffer_.clear();
       state = UM_IDLE;
     }
