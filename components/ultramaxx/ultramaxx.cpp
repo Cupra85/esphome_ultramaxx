@@ -39,7 +39,7 @@ bool UltraMaXXComponent::decode_cp32_datetime_(const std::vector<uint8_t> &data,
 }
 
 void UltraMaXXComponent::setup() {
-  ESP_LOGI(TAG, "UltraMaXX gestartet");
+  ESP_LOGI(TAG, "UltraMaXX Ready");
 }
 
 void UltraMaXXComponent::update() {
@@ -56,17 +56,16 @@ void UltraMaXXComponent::update() {
 void UltraMaXXComponent::loop() {
   uint32_t now = millis();
 
-  // RX Sammler: Liest alles was kommt in den Buffer
+  // KRITISCH: Daten SOFORT lesen, immer!
   while (this->available() > 0) {
     uint8_t c;
-    if (this->read_byte(&c)) {
-      rx_buffer_.push_back(c);
-      last_rx_byte_ = now;
-    }
+    this->read_byte(&c);
+    rx_buffer_.push_back(c);
+    last_rx_byte_ = now;
   }
 
   if (state == UM_WAKEUP) {
-    if (now - last_send_ > 20) {
+    if (now - last_send_ > 25) {
       uint8_t buf[20]; memset(buf, 0x55, 20);
       this->write_array(buf, 20);
       last_send_ = now;
@@ -74,105 +73,83 @@ void UltraMaXXComponent::loop() {
     if (now - wake_start_ > 2200) {
       state = UM_WAIT;
       state_ts_ = now;
-      ESP_LOGI(TAG, "Wakeup fertig");
     }
   }
 
-  if (state == UM_WAIT && now - state_ts_ > 400) {
+  if (state == UM_WAIT && now - state_ts_ > 450) {
     this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
     this->parent_->load_settings();
-    
-    uint8_t d; while (this->available()) this->read_byte(&d);
+    rx_buffer_.clear(); 
     uint8_t reset[] = {0x10, 0x40, 0xFE, 0x3E, 0x16};
     this->write_array(reset, 5);
     state = UM_SEND;
     state_ts_ = now;
-    ESP_LOGI(TAG, "SND_NKE gesendet");
   }
 
-  if (state == UM_SEND && now - state_ts_ > 200) {
+  if (state == UM_SEND && now - state_ts_ > 250) {
     uint8_t ctrl = fcb_toggle_ ? 0x7B : 0x5B;
     uint8_t cs = (ctrl + 0xFE) & 0xFF;
     uint8_t req[] = {0x10, ctrl, 0xFE, cs, 0x16};
+    rx_buffer_.clear(); // Buffer leeren bevor die Antwort kommt
     this->write_array(req, 5);
     fcb_toggle_ = !fcb_toggle_;
-    rx_buffer_.clear();
     state = UM_RX;
     state_ts_ = now;
-    ESP_LOGI(TAG, "REQ_UD2 gesendet");
   }
 
   if (state == UM_RX) {
-    // Wenn Daten da sind UND seit 300ms keine neuen Bytes kamen -> FRAME VERARBEITEN
-    if (!rx_buffer_.empty() && (now - last_rx_byte_ > 300)) {
+    // Wenn seit 400ms Ruhe ist und wir Daten haben -> PARSEN
+    if (!rx_buffer_.empty() && (now - last_rx_byte_ > 400)) {
       
-      ESP_LOGI(TAG, "Empfange %d Bytes. Suche M-Bus Header...", rx_buffer_.size());
-
+      // Suche im gesamten Buffer nach dem 0x68 Header
       for (size_t i = 0; i + 10 < rx_buffer_.size(); i++) {
-        // Suche nach M-Bus Start 0x68
         if (rx_buffer_[i] == 0x68 && rx_buffer_[i+3] == 0x68) {
           
-          ESP_LOGI(TAG, "M-Bus Header gefunden an Position %d", i);
+          ESP_LOGI(TAG, "M-Bus Frame gefunden! Starte Parsing...");
           
-          // Wir parsen ab der Identifikationsnummer (Offset 19 laut deinem Log)
-          size_t p = i + 19;
+          size_t p = i + 19; 
           size_t end = rx_buffer_.size() - 1;
 
           while (p + 2 < end) {
             uint8_t dif = rx_buffer_[p];
             uint8_t vif = rx_buffer_[p+1];
 
-            // Seriennummer: 0x0C 0x78
-            if (dif == 0x0C && vif == 0x78) {
+            // DIF/VIF Logic basierend auf deinem Log
+            if (dif == 0x0C && vif == 0x78) { // SN
               if (serial_number_) serial_number_->publish_state(decode_bcd_(rx_buffer_, p+2, 4));
               p += 6;
-            }
-            // Energie: 0x04 0x06 (Binär, dein Log: CC 5E 00 00 -> 24.268 kWh)
-            else if (dif == 0x04 && vif == 0x06) {
+            } else if (dif == 0x04 && vif == 0x06) { // Energie (Binär!)
               if (total_energy_) total_energy_->publish_state(decode_u_le_(rx_buffer_, p+2, 4) * 0.001f);
               p += 6;
-            }
-            // Volumen: 0x0C 0x14 (BCD, dein Log: 34 39 16 00 -> 1639.34 Liter/m3?)
-            else if (dif == 0x0C && vif == 0x14) {
+            } else if (dif == 0x0C && (vif == 0x14 || vif == 0x13)) { // Volumen (BCD)
               if (total_volume_) total_volume_->publish_state(decode_bcd_(rx_buffer_, p+2, 4) * 0.01f);
               p += 6;
-            }
-            // Vorlauf: 0x0A 0x5A
-            else if (dif == 0x0A && vif == 0x5A) {
+            } else if (dif == 0x0A && vif == 0x5A) { // Vorlauf
               if (temp_flow_) temp_flow_->publish_state(decode_bcd_(rx_buffer_, p+2, 2) * 0.1f);
               p += 4;
-            }
-            // Rücklauf: 0x0A 0x5E
-            else if (dif == 0x0A && vif == 0x5E) {
+            } else if (dif == 0x0A && vif == 0x5E) { // Rücklauf
               if (temp_return_) temp_return_->publish_state(decode_bcd_(rx_buffer_, p+2, 2) * 0.1f);
               p += 4;
-            }
-            // Differenz: 0x0B 0x61
-            else if (dif == 0x0B && vif == 0x61) {
+            } else if (dif == 0x0B && vif == 0x61) { // Delta T
               if (temp_diff_) temp_diff_->publish_state(decode_bcd_(rx_buffer_, p+2, 3) * 0.01f);
               p += 5;
-            }
-            // Zeit: 0x04 0x6D
-            else if (dif == 0x04 && vif == 0x6D) {
+            } else if (dif == 0x04 && vif == 0x6D) { // Zeit
               std::string ts;
               if (meter_time_ && decode_cp32_datetime_(rx_buffer_, p+2, ts)) meter_time_->publish_state(ts);
               p += 6;
-            }
-            else { p++; }
+            } else { p++; }
           }
-          
-          ESP_LOGI(TAG, "Parsing beendet.");
+          ESP_LOGI(TAG, "Parsing abgeschlossen.");
           rx_buffer_.clear();
           state = UM_IDLE;
           return;
         }
       }
-      // Wenn wir hier landen, wurden Daten empfangen, aber kein 0x68 Header gefunden
-      rx_buffer_.clear();
+      rx_buffer_.clear(); // Nichts Sinnvolles gefunden
     }
 
-    if (now - state_ts_ > 8000) {
-      ESP_LOGW(TAG, "Timeout erreicht. Letzter Byte-Empfang vor %d ms", (int)(now - last_rx_byte_));
+    if (now - state_ts_ > 10000) {
+      ESP_LOGW(TAG, "RX Timeout. Bytes im Buffer: %d", rx_buffer_.size());
       rx_buffer_.clear();
       state = UM_IDLE;
     }
