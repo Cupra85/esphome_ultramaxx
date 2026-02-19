@@ -6,17 +6,22 @@ namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
 
-enum UMState {
-  UM_IDLE,
-  UM_WAKEUP,
-  UM_WAIT,
-  UM_SEND,   // send SND_NKE + REQ_UD2
-  UM_RX
-};
-
+enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
 static UMState state = UM_IDLE;
 
-// -------------------- helpers --------------------
+// --- Frame-Assembler (ein Gerät / eine Instanz) ---
+static bool in_frame = false;
+static int expected_total = -1;
+
+// Publish-Guards (damit nicht mehrfach pro Read gepublished wird)
+static bool got_serial = false;
+static bool got_energy = false;
+static bool got_volume = false;
+static bool got_pwr = false;       // optional, falls später ergänzt
+static bool got_tflow = false;
+static bool got_tret = false;
+static bool got_tdiff = false;
+static bool got_time = false;
 
 float UltraMaXXComponent::decode_bcd(const std::vector<uint8_t> &data, size_t start, size_t len) {
   if (start + len > data.size()) return 0.0f;
@@ -31,7 +36,7 @@ float UltraMaXXComponent::decode_bcd(const std::vector<uint8_t> &data, size_t st
 }
 
 uint32_t UltraMaXXComponent::decode_u_le(const std::vector<uint8_t> &data, size_t start, size_t len) {
-  if (start + len > data.size()) return 0;
+  if (start + len > data.size() || len == 0 || len > 4) return 0;
   uint32_t v = 0;
   for (size_t i = 0; i < len; i++) {
     v |= ((uint32_t) data[start + i]) << (8 * i);
@@ -39,83 +44,26 @@ uint32_t UltraMaXXComponent::decode_u_le(const std::vector<uint8_t> &data, size_
   return v;
 }
 
-// M-Bus F format (date+time) per: byte1 minutes (n5..n0), byte2 hours (h4..h0),
-// byte3/byte4 are date in G format (day/month/year)
+// CP32-ish decode (EN13757). Falls Werte unplausibel -> false.
 bool UltraMaXXComponent::decode_cp32_datetime_(const std::vector<uint8_t> &data, size_t start, std::string &out) {
   if (start + 4 > data.size()) return false;
+  uint32_t v = decode_u_le(data, start, 4);
 
-  uint8_t b1 = data[start + 0];
-  uint8_t b2 = data[start + 1];
-  uint8_t b3 = data[start + 2];
-  uint8_t b4 = data[start + 3];
+  int minute = (v >> 0) & 0x3F;   // 0..59
+  int hour   = (v >> 6) & 0x1F;   // 0..23
+  int day    = (v >> 11) & 0x1F;  // 1..31
+  int month  = (v >> 16) & 0x0F;  // 1..12
+  int year   = (v >> 20) & 0x7F;  // 0..127  (interpretiert als 2000+year)
 
-  int minute = b1 & 0x3F;        // 0 0 n5..n0
-  int hour   = b2 & 0x1F;        // 0 0 0 h4..h0
-
-  int day   = b3 & 0x1F;         // j4..j0
-  int month = b4 & 0x0F;         // M3..M0
-
-  int year_low3 = (b3 >> 5) & 0x07;      // a2..a0
-  int year_high4 = (b4 >> 4) & 0x0F;     // a6..a3
-  int year = (year_high4 << 3) | year_low3; // 0..99
-
-  // Basic sanity
+  // Plausibilitätscheck
   if (minute > 59 || hour > 23 || day < 1 || day > 31 || month < 1 || month > 12) return false;
 
-  int full_year = (year < 70) ? (2000 + year) : (1900 + year);
-
-  char buf[24];
+  int full_year = 2000 + year;
+  char buf[32];
   snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d", full_year, month, day, hour, minute);
   out = buf;
   return true;
 }
-
-// Extract one valid M-Bus long frame from rx_buffer_.
-// Frame: 68 L L 68 [L bytes from C..(before CS)] CS 16  => total = L + 6
-static bool extract_mbus_frame(std::vector<uint8_t> &buf, std::vector<uint8_t> &frame_out) {
-  // drop leading garbage until 0x68
-  while (!buf.empty() && buf[0] != 0x68) buf.erase(buf.begin());
-  if (buf.size() < 6) return false;
-
-  // need 68 L L 68
-  if (buf[0] != 0x68 || buf[3] != 0x68) {
-    // resync: drop first byte
-    buf.erase(buf.begin());
-    return false;
-  }
-
-  uint8_t L1 = buf[1];
-  uint8_t L2 = buf[2];
-  if (L1 != L2) {
-    buf.erase(buf.begin());
-    return false;
-  }
-
-  size_t total_len = (size_t) L1 + 6;
-  if (buf.size() < total_len) return false;
-  if (buf[total_len - 1] != 0x16) {
-    // not a proper end marker; resync
-    buf.erase(buf.begin());
-    return false;
-  }
-
-  // verify checksum (optional but helps resync)
-  // checksum is sum of L bytes starting at C-field (index 4) mod 256
-  uint8_t cs = buf[4 + L1];
-  uint8_t sum = 0;
-  for (size_t i = 0; i < L1; i++) sum = (uint8_t) (sum + buf[4 + i]);
-  if (sum != cs) {
-    // bad frame, resync
-    buf.erase(buf.begin());
-    return false;
-  }
-
-  frame_out.assign(buf.begin(), buf.begin() + total_len);
-  buf.erase(buf.begin(), buf.begin() + total_len);
-  return true;
-}
-
-// -------------------- component --------------------
 
 void UltraMaXXComponent::setup() {
   ESP_LOGI(TAG, "UltraMaXX component started");
@@ -124,22 +72,124 @@ void UltraMaXXComponent::setup() {
 void UltraMaXXComponent::update() {
   ESP_LOGI(TAG, "=== READ START ===");
 
-  // Wakeup uses 2400 8N1
+  // Reset per cycle
+  rx_buffer_.clear();
+  in_frame = false;
+  expected_total = -1;
+
+  got_serial = got_energy = got_volume = got_pwr = got_tflow = got_tret = got_tdiff = got_time = false;
+
+  // UART Wakeup: 2400 8N1
   this->parent_->set_baud_rate(2400);
   this->parent_->set_parity(uart::UART_CONFIG_PARITY_NONE);
   this->parent_->load_settings();
 
-  rx_buffer_.clear();
+  // WICHTIG: RX leer machen (alte Bytes raus)
+  uint8_t d;
+  while (this->available()) this->read_byte(&d);
+
   wake_start_ = millis();
   last_send_ = 0;
   state = UM_WAKEUP;
 }
 
+static inline bool match2(const std::vector<uint8_t> &b, size_t i, uint8_t a, uint8_t c) {
+  return (i + 1 < b.size() && b[i] == a && b[i + 1] == c);
+}
+
+// Marker-Parser: arbeitet auf wachsendem Buffer und published sobald Daten da sind
+void parse_markers(UltraMaXXComponent *self, const std::vector<uint8_t> &f) {
+  // Wir scannen alles, aber publishen nur einmal pro Marker
+  for (size_t i = 0; i + 1 < f.size(); i++) {
+
+    // 0C 78 + 4B BCD => Seriennummer
+    if (!got_serial && match2(f, i, 0x0C, 0x78)) {
+      if (i + 2 + 4 <= f.size()) {
+        float sn = self->decode_bcd(f, i + 2, 4);
+        if (self->serial_number_) self->serial_number_->publish_state(sn);
+        got_serial = true;
+        ESP_LOGI(TAG, "Parsed serial_number = %.0f", sn);
+      }
+    }
+
+    // 04 06 + 4B u32le => Energie (MWh) *0.001
+    if (!got_energy && match2(f, i, 0x04, 0x06)) {
+      if (i + 2 + 4 <= f.size()) {
+        uint32_t raw = self->decode_u_le(f, i + 2, 4);
+        float mwh = raw * 0.001f;
+        if (self->total_energy_) self->total_energy_->publish_state(mwh);
+        got_energy = true;
+        ESP_LOGI(TAG, "Parsed total_energy = %.3f MWh (raw=%u)", mwh, raw);
+      }
+    }
+
+    // 0C 14 + 4B BCD => Volumen (m³) *0.01
+    if (!got_volume && match2(f, i, 0x0C, 0x14)) {
+      if (i + 2 + 4 <= f.size()) {
+        float raw_bcd = self->decode_bcd(f, i + 2, 4);
+        float m3 = raw_bcd * 0.01f;
+        if (self->total_volume_) self->total_volume_->publish_state(m3);
+        got_volume = true;
+        ESP_LOGI(TAG, "Parsed total_volume = %.2f m3 (bcd=%.0f)", m3, raw_bcd);
+      }
+    }
+
+    // 0A 5A + 2B BCD => Vorlauf °C *0.1
+    if (!got_tflow && match2(f, i, 0x0A, 0x5A)) {
+      if (i + 2 + 2 <= f.size()) {
+        float raw_bcd = self->decode_bcd(f, i + 2, 2);
+        float c = raw_bcd * 0.1f;
+        if (self->temp_flow_) self->temp_flow_->publish_state(c);
+        got_tflow = true;
+        ESP_LOGI(TAG, "Parsed temp_flow = %.1f C (bcd=%.0f)", c, raw_bcd);
+      }
+    }
+
+    // 0A 5E + 2B BCD => Rücklauf °C *0.1
+    if (!got_tret && match2(f, i, 0x0A, 0x5E)) {
+      if (i + 2 + 2 <= f.size()) {
+        float raw_bcd = self->decode_bcd(f, i + 2, 2);
+        float c = raw_bcd * 0.1f;
+        if (self->temp_return_) self->temp_return_->publish_state(c);
+        got_tret = true;
+        ESP_LOGI(TAG, "Parsed temp_return = %.1f C (bcd=%.0f)", c, raw_bcd);
+      }
+    }
+
+    // 0B 61 + 3B BCD => DeltaT K *0.01
+    if (!got_tdiff && match2(f, i, 0x0B, 0x61)) {
+      if (i + 2 + 3 <= f.size()) {
+        float raw_bcd = self->decode_bcd(f, i + 2, 3);
+        float k = raw_bcd * 0.01f;
+        if (self->temp_diff_) self->temp_diff_->publish_state(k);
+        got_tdiff = true;
+        ESP_LOGI(TAG, "Parsed temp_diff = %.2f K (bcd=%.0f)", k, raw_bcd);
+      }
+    }
+
+    // 04 6D + 4B => Zählerzeit (CP32-ish)
+    if (!got_time && match2(f, i, 0x04, 0x6D)) {
+      if (i + 2 + 4 <= f.size()) {
+        std::string ts;
+        bool ok = self->decode_cp32_datetime_(f, i + 2, ts);
+        if (!ok) {
+          // Fallback: raw hex
+          char buf[32];
+          snprintf(buf, sizeof(buf), "%02X%02X%02X%02X", f[i+2], f[i+3], f[i+4], f[i+5]);
+          ts = buf;
+        }
+        if (self->meter_time_) self->meter_time_->publish_state(ts);
+        got_time = true;
+        ESP_LOGI(TAG, "Parsed meter_time = %s", ts.c_str());
+      }
+    }
+  }
+}
+
 void UltraMaXXComponent::loop() {
   const uint32_t now = millis();
 
-  // ---------- STATE MACHINE FIRST (so we don't drop fast replies) ----------
-
+  // ---------------- WAKEUP ----------------
   if (state == UM_WAKEUP) {
     if (now - last_send_ > 15) {
       uint8_t buf[20];
@@ -153,191 +203,135 @@ void UltraMaXXComponent::loop() {
       state = UM_WAIT;
       state_ts_ = now;
     }
+    return;
   }
 
-  if (state == UM_WAIT && (now - state_ts_ > 350)) {
-    ESP_LOGI(TAG, "Switch to 2400 8E1");
+  // ---------------- WAIT + SWITCH ----------------
+  if (state == UM_WAIT) {
+    if (now - state_ts_ > 350) {
+      ESP_LOGI(TAG, "Switch to 2400 8E1");
+      this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
+      this->parent_->load_settings();
 
-    this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
-    this->parent_->load_settings();
+      // Ganz wichtig: RX leeren (Wakeup-Reste, Echo etc.)
+      uint8_t d;
+      while (this->available()) this->read_byte(&d);
 
-    // HARD FLUSH: remove leftover 0x55 etc.
-    uint8_t dummy;
-    while (this->available()) this->read_byte(&dummy);
-    rx_buffer_.clear();
-
-    state = UM_SEND;
-    state_ts_ = now;
-  }
-
-  if (state == UM_SEND) {
-    // Send SND_NKE immediately once
-    // (guard with time: only do once at entry)
-    if (now - state_ts_ < 5) {
+      // SND_NKE
       uint8_t reset[] = {0x10, 0x40, 0xFE, 0x3E, 0x16};
       this->write_array(reset, sizeof(reset));
       this->flush();
       ESP_LOGI(TAG, "SND_NKE gesendet");
+
+      state = UM_SEND;
+      state_ts_ = now;
     }
+    return;
+  }
 
-    // Send REQ_UD2 after a short delay (as in known-good scripts)
-    if (now - state_ts_ > 120) {
-      // flush again right before request
-      uint8_t dummy;
-      while (this->available()) this->read_byte(&dummy);
-      rx_buffer_.clear();
+  // ---------------- SEND REQ_UD2 ----------------
+  if (state == UM_SEND) {
+    if (now - state_ts_ > 80) {
+      // Buffer nochmal leer
+      uint8_t d;
+      while (this->available()) this->read_byte(&d);
 
-      uint8_t ctrl = fcb_toggle_ ? 0x7B : 0x5B;     // toggle FCB
+      // Toggle FCB über 0x5B/0x7B
+      uint8_t ctrl = fcb_toggle_ ? 0x7B : 0x5B;
       uint8_t cs = (uint8_t) ((ctrl + 0xFE) & 0xFF);
       uint8_t req[] = {0x10, ctrl, 0xFE, cs, 0x16};
 
       this->write_array(req, sizeof(req));
       this->flush();
-
-      ESP_LOGI(TAG, "REQ_UD2 gesendet");
       fcb_toggle_ = !fcb_toggle_;
 
-      // NOW switch to RX immediately
-      state = UM_RX;
-      state_ts_ = now;
+      ESP_LOGI(TAG, "REQ_UD2 gesendet");
+
+      // RX vorbereiten
+      rx_buffer_.clear();
+      in_frame = false;
+      expected_total = -1;
+
       last_rx_byte_ = now;
+      state_ts_ = now;
+      state = UM_RX;
     }
+    return;
   }
 
-  // ---------- THEN READ UART (ONLY IN RX) ----------
+  // ---------------- RX / STREAM PARSER ----------------
   if (state == UM_RX) {
+
+    // Bytes holen
     while (this->available()) {
       uint8_t c;
-      if (this->read_byte(&c)) {
-        rx_buffer_.push_back(c);
-        last_rx_byte_ = now;
+      if (!this->read_byte(&c)) break;
+      last_rx_byte_ = now;
+
+      // Frame-Start finden (alles vorher ignorieren!)
+      if (!in_frame) {
+        if (c == 0x68) {
+          in_frame = true;
+          rx_buffer_.clear();
+          rx_buffer_.push_back(c);
+        }
+        continue;
       }
-    }
 
-    // Try to extract & parse frames whenever buffer grows
-    std::vector<uint8_t> frame;
-    bool parsed_any = false;
+      // Wenn wir im Frame sind, alles sammeln
+      rx_buffer_.push_back(c);
 
-    // Extract potentially multiple frames if present
-    while (extract_mbus_frame(rx_buffer_, frame)) {
-      parsed_any = true;
-      ESP_LOGI(TAG, "Parsing Frame (%u bytes)", (unsigned) frame.size());
-
-      // Frame layout:
-      // 0:68 1:L 2:L 3:68 4:C 5:A 6:CI 7.. : body
-      // For RSP_UD, CI usually 0x72. Records start after fixed header fields.
-      // Your frames show records starting at index 19.
-      if (frame.size() < 24) continue;
-
-      size_t ptr = 19;  // verified from your telegrams: after access/status/sig1/sig2
-
-      // walk records
-      while (ptr + 2 < frame.size()) {
-        uint8_t dif = frame[ptr++];
-        if (dif == 0x16) break; // just in case
-
-        // skip DIFE(s)
-        while (dif & 0x80) {
-          if (ptr >= frame.size()) break;
-          dif = frame[ptr++];  // last read was actually DIFE; keep looping if it has extension too
-        }
-
-        if (ptr >= frame.size()) break;
-        uint8_t vif = frame[ptr++];
-
-        // skip VIFE(s)
-        while (vif & 0x80) {
-          if (ptr >= frame.size()) break;
-          vif = frame[ptr++];  // last read was actually VIFE; keep looping if extension too
-        }
-
-        uint8_t lsn = dif & 0x0F;
-        int len = 0;
-
-        // data length per DIF low nibble (subset we need)
-        if (lsn <= 0x04) {
-          // 0: none, 1:1, 2:2, 3:3, 4:4
-          len = lsn;
-        } else if (lsn >= 0x09 && lsn <= 0x0C) {
-          // BCD 2/4/6/8 digits => 1/2/3/4 bytes
-          len = (lsn - 0x08);
+      // Sobald 68 L L 68 da ist -> erwartete Gesamtlänge berechnen
+      if (expected_total < 0 && rx_buffer_.size() >= 4) {
+        if (rx_buffer_[0] == 0x68 && rx_buffer_[3] == 0x68 && rx_buffer_[1] == rx_buffer_[2]) {
+          uint8_t L = rx_buffer_[1];
+          expected_total = (int) L + 6;  // 68 L L 68 + (L bytes: C..DATA) + CS + 16
+          // ESP_LOGD(TAG, "Expected total frame len = %d", expected_total);
         } else {
-          // other types not needed for our target fields
-          // try to stop safely if unknown
-          // (prevents walking off if we can't determine length)
-          break;
+          // kein gültiger Header -> resync (suche nächstes 0x68 in Buffer)
+          in_frame = false;
+          expected_total = -1;
+          rx_buffer_.clear();
+        }
+      }
+
+      // Streaming-Parsing: sobald wir Header haben, Marker schon während des Empfangs auswerten
+      if (expected_total > 0 && rx_buffer_.size() >= 8) {
+        parse_markers(this, rx_buffer_);
+      }
+
+      // Frame komplett?
+      if (expected_total > 0 && (int) rx_buffer_.size() >= expected_total) {
+        // Optional: rudimentäre Endprüfung
+        if (rx_buffer_.back() == 0x16) {
+          ESP_LOGI(TAG, "Frame complete (%d bytes)", (int) rx_buffer_.size());
+          // Noch einmal final parsen (falls letzter Marker erst am Ende vollständig wurde)
+          parse_markers(this, rx_buffer_);
+        } else {
+          ESP_LOGW(TAG, "Frame length reached but no 0x16 end");
         }
 
-        if (ptr + (size_t) len > frame.size()) break;
-
-        // --- publish fields by VIF (and expected DIF) ---
-        // Serial number: DIF=0x0C (BCD8 => 4 bytes), VIF=0x78
-        if (serial_number_ && vif == 0x78 && len == 4) {
-          float sn = decode_bcd(frame, ptr, 4);
-          serial_number_->publish_state(sn);
-        }
-
-        // Total energy: DIF=0x04 (4 bytes), VIF=0x06 (uint32 LE, /1000 => MWh)
-        if (total_energy_ && vif == 0x06 && len == 4) {
-          uint32_t raw = decode_u_le(frame, ptr, 4);
-          total_energy_->publish_state(((float) raw) / 1000.0f);
-        }
-
-        // Total volume: DIF=0x0C (BCD8 => 4 bytes), VIF=0x14 (BCD, /100 => m³)
-        if (total_volume_ && vif == 0x14 && len == 4) {
-          float vol = decode_bcd(frame, ptr, 4) / 100.0f;
-          total_volume_->publish_state(vol);
-        }
-
-        // Current power (in your telegrams appears as DIF=0x3B (BCD6 =>3 bytes), VIF=0x2D, /10 => kW)
-        if (current_power_ && vif == 0x2D && len == 3) {
-          float p = decode_bcd(frame, ptr, 3) / 10.0f;
-          current_power_->publish_state(p);
-        }
-
-        // Flow temp: DIF=0x0A (BCD4 =>2 bytes), VIF=0x5A, /10 => °C
-        if (temp_flow_ && vif == 0x5A && len == 2) {
-          float t = decode_bcd(frame, ptr, 2) / 10.0f;
-          temp_flow_->publish_state(t);
-        }
-
-        // Return temp: DIF=0x0A (BCD4 =>2 bytes), VIF=0x5E, /10 => °C
-        if (temp_return_ && vif == 0x5E && len == 2) {
-          float t = decode_bcd(frame, ptr, 2) / 10.0f;
-          temp_return_->publish_state(t);
-        }
-
-        // Temp diff: DIF=0x0B (BCD6 =>3 bytes), VIF=0x61, /100 => K
-        if (temp_diff_ && vif == 0x61 && len == 3) {
-          float dt = decode_bcd(frame, ptr, 3) / 100.0f;
-          temp_diff_->publish_state(dt);
-        }
-
-        // Meter time: DIF=0x04 (4 bytes), VIF=0x6D (F format)
-        if (meter_time_ && vif == 0x6D && len == 4) {
-          std::string ts;
-          if (decode_cp32_datetime_(frame, ptr, ts)) {
-            meter_time_->publish_state(ts);
-          }
-        }
-
-        ptr += (size_t) len;
+        // Ende dieses Zyklus
+        rx_buffer_.clear();
+        in_frame = false;
+        expected_total = -1;
+        state = UM_IDLE;
+        ESP_LOGI(TAG, "Update finished.");
+        return;
       }
     }
 
-    if (parsed_any) {
-      ESP_LOGI(TAG, "Update finished.");
-      state = UM_IDLE;
+    // Timeout (wenn gar nix mehr kommt)
+    if (now - state_ts_ > 12000) {
+      ESP_LOGW(TAG, "RX Timeout");
       rx_buffer_.clear();
+      in_frame = false;
+      expected_total = -1;
+      state = UM_IDLE;
       return;
     }
 
-    // RX timeout (no valid frame extracted)
-    if (now - state_ts_ > 10000) {
-      ESP_LOGW(TAG, "RX Timeout");
-      rx_buffer_.clear();
-      state = UM_IDLE;
-    }
+    return;
   }
 }
 
