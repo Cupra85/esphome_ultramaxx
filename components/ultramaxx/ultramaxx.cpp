@@ -4,7 +4,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v5.21";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.0";
 
 // Zustände (Wakeup Sequenz NICHT ändern)
 enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
@@ -78,79 +78,65 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
   // Minimum: Marker (2) + Daten (mind. 2..4)
   if (buf.size() < 6) return;
 
-  for (size_t i = 0; i + 2 < buf.size(); i++) {
+// ---------- STREAM PARSER (CORRECT) ----------
+for (size_t i = 0; i + 6 < rx_buffer_.size(); i++) {
 
-    // 0C 78 + 4 BCD Bytes => Seriennummer (z.B. 98 07 19 19 => 19190798)
-    if (!got_serial_ && i + 2 + 4 <= buf.size() && buf[i] == 0x0C && buf[i + 1] == 0x78) {
-      float sn = decode_bcd_(buf, i + 2, 4);
-      if (isnan(sn) == false) {
-        got_serial_ = true;
-        ESP_LOGI(TAG, "SERIAL parsed: %.0f", sn);
-        if (serial_number_) serial_number_->publish_state(sn);
-      }
-    }
+  // SERIAL
+  if (!got_serial_ && rx_buffer_[i]==0x0C && rx_buffer_[i+1]==0x78) {
+    float sn = decode_bcd_(rx_buffer_, i+2, 4);
+    ESP_LOGI(TAG,"SERIAL parsed: %.0f",sn);
+    if(serial_number_) serial_number_->publish_state(sn);
+    got_serial_ = true;
+  }
 
-    // 04 06 + 4 LE Bytes => Energie (raw/1000 => MWh)
-    if (!got_energy_ && i + 2 + 4 <= buf.size() && buf[i] == 0x04 && buf[i + 1] == 0x06) {
-      uint32_t raw = decode_u_le_(buf, i + 2, 4);
-      float e = ((float) raw) * 0.001f;
-      got_energy_ = true;
-      ESP_LOGI(TAG, "ENERGY parsed: %.3f MWh (raw=%u)", e, raw);
-      if (total_energy_) total_energy_->publish_state(e);
-    }
+  // ENERGY
+  if (!got_energy_ && rx_buffer_[i]==0x04 && rx_buffer_[i+1]==0x06) {
+    uint32_t raw = decode_u_le_(rx_buffer_, i+2, 4);
+    float e = raw * 0.001f;
+    ESP_LOGI(TAG,"ENERGY parsed: %.3f",e);
+    if(total_energy_) total_energy_->publish_state(e);
+    got_energy_ = true;
+  }
 
-    // 0C 14 + 4 BCD Bytes => Volumen (raw/100 => m³)
-    if (!got_volume_ && i + 2 + 4 <= buf.size() && buf[i] == 0x0C && buf[i + 1] == 0x14) {
-      float vraw = decode_bcd_(buf, i + 2, 4);
-      if (isnan(vraw) == false) {
-        float v = vraw * 0.01f;
-        got_volume_ = true;
-        ESP_LOGI(TAG, "VOLUME parsed: %.2f m³ (bcd=%.0f)", v, vraw);
-        if (total_volume_) total_volume_->publish_state(v);
-      }
-    }
+  // VOLUME
+  if (!got_volume_ && rx_buffer_[i]==0x0C && rx_buffer_[i+1]==0x14) {
+    float v = decode_bcd_(rx_buffer_, i+2, 4)*0.01f;
+    ESP_LOGI(TAG,"VOLUME parsed: %.2f",v);
+    if(total_volume_) total_volume_->publish_state(v);
+    got_volume_ = true;
+  }
 
-    // 0A 5A + 2 BCD Bytes => Vorlauf (raw/10 => °C)
-    if (!got_tflow_ && i + 2 + 2 <= buf.size() && buf[i] == 0x0A && buf[i + 1] == 0x5A) {
-      float traw = decode_bcd_(buf, i + 2, 2);
-      if (isnan(traw) == false) {
-        float t = traw * 0.1f;
-        got_tflow_ = true;
-        ESP_LOGI(TAG, "TFLOW parsed: %.1f °C (bcd=%.0f)", t, traw);
-        if (temp_flow_) temp_flow_->publish_state(t);
-      }
-    }
+  // FLOW TEMP
+  if (!got_tflow_ && rx_buffer_[i]==0x0A && rx_buffer_[i+1]==0x5A) {
+    float t = decode_bcd_(rx_buffer_, i+2, 2)*0.1f;
+    ESP_LOGI(TAG,"FLOW TEMP parsed: %.1f",t);
+    if(temp_flow_) temp_flow_->publish_state(t);
+    got_tflow_ = true;
+  }
 
-    // 0A 5E + 2 BCD Bytes => Rücklauf (raw/10 => °C)
-    if (!got_tret_ && i + 2 + 2 <= buf.size() && buf[i] == 0x0A && buf[i + 1] == 0x5E) {
-      float traw = decode_bcd_(buf, i + 2, 2);
-      if (isnan(traw) == false) {
-        float t = traw * 0.1f;
-        got_tret_ = true;
-        ESP_LOGI(TAG, "TRETURN parsed: %.1f °C (bcd=%.0f)", t, traw);
-        if (temp_return_) temp_return_->publish_state(t);
-      }
-    }
+  // RETURN TEMP
+  if (!got_tret_ && rx_buffer_[i]==0x0A && rx_buffer_[i+1]==0x5E) {
+    float t = decode_bcd_(rx_buffer_, i+2, 2)*0.1f;
+    ESP_LOGI(TAG,"RETURN TEMP parsed: %.1f",t);
+    if(temp_return_) temp_return_->publish_state(t);
+    got_tret_ = true;
+  }
 
-    // 0B 61 + 3 BCD Bytes => DeltaT (raw/100 => K)
-    if (!got_tdiff_ && i + 2 + 3 <= buf.size() && buf[i] == 0x0B && buf[i + 1] == 0x61) {
-      float draw = decode_bcd_(buf, i + 2, 3);
-      if (isnan(draw) == false) {
-        float dt = draw * 0.01f;
-        got_tdiff_ = true;
-        ESP_LOGI(TAG, "TDIFF parsed: %.2f K (bcd=%.0f)", dt, draw);
-        if (temp_diff_) temp_diff_->publish_state(dt);
-      }
-    }
+  // DELTA T
+  if (!got_tdiff_ && rx_buffer_[i]==0x0B && rx_buffer_[i+1]==0x61) {
+    float dt = decode_bcd_(rx_buffer_, i+2, 3)*0.01f;
+    ESP_LOGI(TAG,"DELTA T parsed: %.2f",dt);
+    if(temp_diff_) temp_diff_->publish_state(dt);
+    got_tdiff_ = true;
+  }
 
-    // 04 6D + 4 Bytes => Zählerzeit (CP32-ish)
-    if (!got_time_ && i + 2 + 4 <= buf.size() && buf[i] == 0x04 && buf[i + 1] == 0x6D) {
-      std::string ts;
-      if (decode_cp32_datetime_(buf, i + 2, ts)) {
-        got_time_ = true;
-        ESP_LOGI(TAG, "METER TIME parsed: %s", ts.c_str());
-        if (meter_time_) meter_time_->publish_state(ts);
-      }
+  // METER TIME
+  if (!got_time_ && rx_buffer_[i]==0x04 && rx_buffer_[i+1]==0x6D) {
+    std::string ts;
+    if(decode_cp32_datetime_(rx_buffer_, i+2, ts)) {
+      ESP_LOGI(TAG,"TIME parsed: %s",ts.c_str());
+      if(meter_time_) meter_time_->publish_state(ts);
+      got_time_ = true;
     }
   }
 }
