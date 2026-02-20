@@ -169,7 +169,7 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
 // -------------------- ESPHome hooks --------------------
 
 void UltraMaXXComponent::setup() {
-  ESP_LOGI(TAG, "%s", ULTRAMAXX_LOADED_LINE);
+  ESP_LOGI(TAG, "UltraMaXX Parser v5.17");
 }
 
 void UltraMaXXComponent::update() {
