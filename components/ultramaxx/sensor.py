@@ -28,7 +28,7 @@ CONFIG_SCHEMA = (
 
             cv.Optional(CONF_SERIAL_NUMBER): sensor.sensor_schema(),
             cv.Optional(CONF_TOTAL_ENERGY): sensor.sensor_schema(
-                unit_of_measurement="MWh", accuracy_decimals=3
+                unit_of_measurement="kWh", accuracy_decimals=0
             ),
             cv.Optional(CONF_TOTAL_VOLUME): sensor.sensor_schema(
                 unit_of_measurement="m³", accuracy_decimals=2
