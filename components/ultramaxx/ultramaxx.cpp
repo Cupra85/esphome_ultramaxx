@@ -5,7 +5,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.7";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.8";
 
 enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
 static UMState state = UM_IDLE;
@@ -33,33 +33,36 @@ uint32_t UltraMaXXComponent::decode_u_le_(const std::vector<uint8_t> &data, size
   return v;
 }
 
-bool UltraMaXXComponent::decode_cp32_datetime_(const std::vector<uint8_t> &data,
-                                               size_t start,
-                                               std::string &out) const {
+bool UltraMaXXComponent::decode_cp32_datetime_(
+    const std::vector<uint8_t> &data,
+    size_t start,
+    std::string &out) const {
+
   if (start + 4 > data.size()) return false;
 
-  // UltraMaXX liefert CP32 direkt als:
-  // minute, hour, day, month (kein packed bitfield)
+  const uint8_t b0 = data[start + 0];
+  const uint8_t b1 = data[start + 1];
+  const uint8_t b2 = data[start + 2];
+  const uint8_t b3 = data[start + 3];
 
-  const uint8_t minute = data[start + 0];
-  const uint8_t hour   = data[start + 1];
-  const uint8_t day    = data[start + 2];
-  const uint8_t month  = data[start + 3];
-
-  // Jahr liefert dieses Modell NICHT im CP32 Block.
-  // Wir lassen es daher weg (wie viele M-Bus Reader auch).
+  // M-Bus CP32 Type F (Allmess kompatibel)
+  const uint8_t minute = b0 & 0x3F;
+  const uint8_t hour   = b1 & 0x1F;
+  const uint8_t day    = b2 & 0x1F;
+  const uint8_t month  = b3 & 0x0F;
+  const uint8_t year   = 2000 + ((b3 >> 4) & 0x0F);
 
   if (minute > 59 || hour > 23 || day < 1 || day > 31 || month < 1 || month > 12)
     return false;
 
   char buf[32];
-  std::snprintf(buf, sizeof(buf), "%02u.%02u %02u:%02u",
-                day, month, hour, minute);
+  std::snprintf(buf, sizeof(buf),
+                "%02u.%02u.%u %02u:%02u",
+                day, month, year, hour, minute);
 
   out = buf;
   return true;
 }
-
 // -------------------- Flags --------------------
 
 void UltraMaXXComponent::reset_parse_flags_() {
