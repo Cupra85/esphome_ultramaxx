@@ -5,7 +5,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.12";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.13";
 
 enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
 static UMState state = UM_IDLE;
@@ -33,35 +33,37 @@ uint32_t UltraMaXXComponent::decode_u_le_(const std::vector<uint8_t> &data, size
   return v;
 }
 
-bool UltraMaXXComponent::decode_cp32_datetime_(const std::vector<uint8_t> &data,
-                                               size_t start,
-                                               std::string &out) const {
+bool UltraMaXXComponent::decode_cp32_datetime_(
+    const std::vector<uint8_t> &data,
+    size_t start,
+    std::string &out) const {
 
   if (start + 4 > data.size()) return false;
 
-  const uint8_t b0 = data[start + 0];
-  const uint8_t b1 = data[start + 1];
-  const uint8_t b2 = data[start + 2];
-  const uint8_t b3 = data[start + 3];
+  const uint32_t v =
+      ((uint32_t)data[start + 0] << 24) |
+      ((uint32_t)data[start + 1] << 16) |
+      ((uint32_t)data[start + 2] <<  8) |
+      ((uint32_t)data[start + 3] <<  0);
 
-  // ALLMESS TYPE-F (EN1434 Variant)
+  const uint8_t minute =  v        & 0x3F;
+  uint8_t hour          = (v >> 8)  & 0x1F;
+  const bool dst        = (v >> 15) & 0x01;
 
-  const uint8_t minute =  b0 & 0x3F;
-  const uint8_t hour   =  b1 & 0x1F;
-  const uint8_t day    =  b2 & 0x1F;
-  const uint8_t month  =  b3 & 0x0F;
+  const uint8_t day   = (v >> 16) & 0x1F;
+  const uint8_t month = (v >> 24) & 0x0F;
 
   const uint8_t year =
-      ((b2 >> 5) & 0x07) |   // year low
-      ((b3 >> 1) & 0x78);    // year high
+      ((v >> 21) & 0x07) |
+      (((v >> 28) & 0x0F) << 3);
 
-  if (minute > 59 || hour > 23 || day == 0 || day > 31 || month == 0 || month > 12)
-    return false;
+  // ⭐ Allmess DST Korrektur
+  if (dst && hour > 0) hour -= 1;
 
   char buf[32];
-  std::snprintf(buf, sizeof(buf),
-                "%02u.%02u 20%02u %02u:%02u",
-                day, month, year, hour, minute);
+  std::snprintf(buf,sizeof(buf),
+      "%02u.%02u.20%02u %02u:%02u",
+      day,month,year,hour,minute);
 
   out = buf;
   return true;
