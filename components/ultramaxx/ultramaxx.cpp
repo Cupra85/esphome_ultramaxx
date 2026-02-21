@@ -5,7 +5,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.10";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.11";
 
 enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
 static UMState state = UM_IDLE;
@@ -94,7 +94,6 @@ void UltraMaXXComponent::reset_parse_flags_() {
 // -------------------- Parser --------------------
 
 void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
-
   const size_t n = buf.size();
   if (n < 10) return;
 
@@ -177,12 +176,10 @@ void UltraMaXXComponent::setup() {
 void UltraMaXXComponent::update() {
   ESP_LOGI(TAG, "=== READ START (%s) ===", ULTRAMAXX_VERSION);
 
-  // Wakeup-Phase: 2400 8N1
   this->parent_->set_baud_rate(2400);
   this->parent_->set_parity(uart::UART_CONFIG_PARITY_NONE);
   this->parent_->load_settings();
 
-  // RX state reset
   rx_buffer_.clear();
   in_frame_ = false;
   expected_len_ = 0;
@@ -198,14 +195,12 @@ void UltraMaXXComponent::update() {
 void UltraMaXXComponent::loop() {
   const uint32_t now = millis();
 
-  // -------------------- RX: Byte-stream aufnehmen & streaming parse --------------------
   while (this->available()) {
     uint8_t c;
     if (!this->read_byte(&c)) break;
 
     last_rx_ms_ = now;
 
-    // Start of long frame suchen (0x68). Alles davor ignorieren (z.B. 0x55 wakeup noise).
     if (!in_frame_) {
       if (c != 0x68) continue;
       in_frame_ = true;
@@ -217,49 +212,37 @@ void UltraMaXXComponent::loop() {
 
     rx_buffer_.push_back(c);
 
-    // Expected length bestimmen sobald wir "68 L L 68" haben
     if (rx_buffer_.size() == 4) {
-      // rx_buffer_[0] = 68
       const uint8_t L1 = rx_buffer_[1];
       const uint8_t L2 = rx_buffer_[2];
       const uint8_t S2 = rx_buffer_[3];
       if (S2 != 0x68 || L1 != L2 || L1 < 3) {
-        // Kein gültiger Longframe-Header -> resync: suche neues 0x68
         in_frame_ = false;
         rx_buffer_.clear();
         expected_len_ = 0;
         continue;
       }
-      expected_len_ = (size_t) (4 + L1 + 2);  // 68 L L 68 + (L bytes ab C..DATA) + CS + 16
+      expected_len_ = (size_t) (4 + L1 + 2);
     }
 
-    // Streaming parse läuft, sobald genug Bytes im Buffer sind.
-    // (Das ist genau dein Wunsch: nicht "bis vollständiger Longframe", sondern sobald Marker auftauchen.)
     this->parse_and_publish_(rx_buffer_);
 
-    // Frame komplett?
     if (expected_len_ > 0 && rx_buffer_.size() >= expected_len_) {
-      // Optional sanity: letztes Byte sollte 0x16 sein
       if (rx_buffer_.back() != 0x16) {
         ESP_LOGW(TAG, "Frame length reached (%u) but last byte != 0x16 (got %02X) -> resync",
                  (unsigned) rx_buffer_.size(), rx_buffer_.back());
       }
-      // Telegram Ende: bereit für nächstes
       in_frame_ = false;
       rx_buffer_.clear();
       expected_len_ = 0;
-      // Flags bleiben gesetzt bis nächster update()-Zyklus (verhindert Spam)
     }
   }
 
-  // -------------------- RX timeout (nur wenn wir wirklich auf Daten warten) --------------------
   if (state == UM_RX) {
-    // Kein Header jemals gesehen
     if (!in_frame_ && (now - last_rx_ms_ > 2200)) {
       ESP_LOGW(TAG, "RX Timeout (no header). buf=%u", (unsigned) rx_buffer_.size());
       state = UM_IDLE;
     }
-    // Header gesehen, aber Frame kommt nicht zu Ende
     if (in_frame_ && (now - last_rx_ms_ > 2200)) {
       ESP_LOGW(TAG, "RX Timeout (in frame). buf=%u exp=%u", (unsigned) rx_buffer_.size(), (unsigned) expected_len_);
       in_frame_ = false;
@@ -269,9 +252,6 @@ void UltraMaXXComponent::loop() {
     }
   }
 
-  // -------------------- State machine --------------------
-
-  // WAKEUP: 0x55… senden (8N1)
   if (state == UM_WAKEUP) {
     if (now - last_send_ > 15) {
       uint8_t buf[20];
@@ -287,13 +267,11 @@ void UltraMaXXComponent::loop() {
     return;
   }
 
-  // WAIT: Umschalten auf 8E1
   if (state == UM_WAIT && now - state_ts_ > 350) {
     ESP_LOGI(TAG, "Switch to 2400 8E1");
     this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
     this->parent_->load_settings();
 
-    // UART RX FIFO leeren (damit keine 0x55-Reste reinlaufen)
     uint8_t d;
     while (this->available()) this->read_byte(&d);
 
@@ -302,7 +280,6 @@ void UltraMaXXComponent::loop() {
     expected_len_ = 0;
     last_rx_ms_ = now;
 
-    // SND_NKE
     const uint8_t reset[] = {0x10, 0x40, 0xFE, 0x3E, 0x16};
     this->write_array(reset, sizeof(reset));
     this->flush();
@@ -313,7 +290,6 @@ void UltraMaXXComponent::loop() {
     return;
   }
 
-  // SEND: REQ_UD2
   if (state == UM_SEND && now - state_ts_ > 150) {
     const uint8_t ctrl = fcb_toggle_ ? 0x7B : 0x5B;
     const uint8_t cs = (uint8_t) ((ctrl + 0xFE) & 0xFF);
@@ -325,7 +301,6 @@ void UltraMaXXComponent::loop() {
 
     fcb_toggle_ = !fcb_toggle_;
 
-    // RX aktivieren
     state = UM_RX;
     last_rx_ms_ = now;
     return;
