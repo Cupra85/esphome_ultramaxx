@@ -5,7 +5,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.5";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.6";
 
 enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
 static UMState state = UM_IDLE;
@@ -33,12 +33,33 @@ uint32_t UltraMaXXComponent::decode_u_le_(const std::vector<uint8_t> &data, size
   return v;
 }
 
-bool UltraMaXXComponent::decode_cp32_datetime_(const std::vector<uint8_t> &data, size_t start, std::string &out) const {
+bool UltraMaXXComponent::decode_cp32_datetime_(const std::vector<uint8_t> &data,
+                                              size_t start,
+                                              std::string &out) const {
   if (start + 4 > data.size()) return false;
+
+  // CP32 (Type F) is a 32-bit packed timestamp (NOT BCD).
+  // Bytes are transmitted MSB..LSB for this field, i.e. v = b0<<24 | b1<<16 | b2<<8 | b3.
+  const uint32_t v =
+      ((uint32_t) data[start + 0] << 24) |
+      ((uint32_t) data[start + 1] << 16) |
+      ((uint32_t) data[start + 2] <<  8) |
+      ((uint32_t) data[start + 3] <<  0);
+
+  const uint8_t minute = (uint8_t) ( v        & 0x3F);   // UI6
+  const uint8_t hour   = (uint8_t) ((v >>  8) & 0x1F);   // UI5
+  const uint8_t day    = (uint8_t) ((v >> 16) & 0x1F);   // UI5
+  const uint8_t month  = (uint8_t) ((v >> 24) & 0x0F);   // UI4
+
+  // UI7 split across bits: year_low (3 bits) and year_high (4 bits)
+  const uint8_t year =
+      (uint8_t)(((v >> 21) & 0x07) | (((v >> 28) & 0x0F) << 3)); // 0..127 (usually 0..99)
+
+  // Sanity checks (optional, but helps reject garbage)
+  if (minute > 59 || hour > 23 || day < 1 || day > 31 || month < 1 || month > 12) return false;
+
   char buf[32];
-  std::snprintf(buf, sizeof(buf), "%02u.%02u %02u:%02u",
-                data[start + 1], data[start + 0],
-                data[start + 3], data[start + 2]);
+  std::snprintf(buf, sizeof(buf), "%02u.%02u 20%02u %02u:%02u", day, month, year, hour, minute);
   out = buf;
   return true;
 }
