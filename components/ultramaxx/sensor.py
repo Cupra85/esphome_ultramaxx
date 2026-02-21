@@ -19,6 +19,8 @@ CONF_TEMP_FLOW = "temp_flow"
 CONF_TEMP_RETURN = "temp_return"
 CONF_TEMP_DIFF = "temp_diff"
 CONF_METER_TIME = "meter_time"
+CONF_OPERATING_TIME = "operating_time"
+CONF_ERROR_TIME = "error_time"
 
 CONFIG_SCHEMA = (
     cv.Schema(
@@ -45,6 +47,12 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_TEMP_DIFF): sensor.sensor_schema(
                 unit_of_measurement="K", accuracy_decimals=2
             ),
+            cv.Optional(CONF_OPERATING_TIME): sensor.sensor_schema(
+                unit_of_measurement="d", accuracy_decimals=0
+            ),
+            cv.Optional(CONF_ERROR_TIME): sensor.sensor_schema(
+                unit_of_measurement="h", accuracy_decimals=0
+            ),
 
             cv.Optional(CONF_METER_TIME): text_sensor.text_sensor_schema(),
         }
@@ -68,6 +76,8 @@ async def to_code(config):
         (CONF_TEMP_FLOW, "set_temp_flow_sensor", sensor.new_sensor),
         (CONF_TEMP_RETURN, "set_temp_return_sensor", sensor.new_sensor),
         (CONF_TEMP_DIFF, "set_temp_diff_sensor", sensor.new_sensor),
+        (CONF_OPERATING_TIME, "set_operating_time_sensor", sensor.new_sensor),
+        (CONF_ERROR_TIME, "set_error_time_sensor", sensor.new_sensor),
     ]
 
     for key, setter, factory in mapping:
