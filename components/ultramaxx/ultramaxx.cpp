@@ -5,12 +5,12 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.3";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.5";
 
 enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
 static UMState state = UM_IDLE;
 
-// -------------------- Decoders (match ultramaxx.h signatures) --------------------
+// -------------------- Decoder --------------------
 
 float UltraMaXXComponent::decode_bcd_(const std::vector<uint8_t> &data, size_t start, size_t len) const {
   if (start + len > data.size()) return NAN;
@@ -29,16 +29,13 @@ float UltraMaXXComponent::decode_bcd_(const std::vector<uint8_t> &data, size_t s
 uint32_t UltraMaXXComponent::decode_u_le_(const std::vector<uint8_t> &data, size_t start, size_t len) const {
   if (start + len > data.size()) return 0;
   uint32_t v = 0;
-  for (size_t i = 0; i < len; i++) v |= ((uint32_t) data[start + i]) << (8 * i);
+  for (size_t i = 0; i < len; i++) v |= ((uint32_t)data[start + i]) << (8 * i);
   return v;
 }
 
-// CP32 Date/Time (vereinfachte Darstellung wie bisher genutzt)
 bool UltraMaXXComponent::decode_cp32_datetime_(const std::vector<uint8_t> &data, size_t start, std::string &out) const {
   if (start + 4 > data.size()) return false;
   char buf[32];
-  // bisheriges Schema: dd.mm hh:mm aus 4 Bytes (wie in deinen Logs schon verwendet)
-  // Byte0 = Monat? Byte1 = Tag? (geräteabhängig) – wir bleiben konsistent zu deinem bisherigen Code.
   std::snprintf(buf, sizeof(buf), "%02u.%02u %02u:%02u",
                 data[start + 1], data[start + 0],
                 data[start + 3], data[start + 2]);
@@ -46,7 +43,7 @@ bool UltraMaXXComponent::decode_cp32_datetime_(const std::vector<uint8_t> &data,
   return true;
 }
 
-// -------------------- Publish guards --------------------
+// -------------------- Flags --------------------
 
 void UltraMaXXComponent::reset_parse_flags_() {
   got_serial_ = false;
@@ -56,83 +53,83 @@ void UltraMaXXComponent::reset_parse_flags_() {
   got_tret_   = false;
   got_tdiff_  = false;
   got_time_   = false;
+  got_operating_ = false;
+  got_error_ = false;
 }
 
-// Streaming-Parser: sucht Marker überall im Buffer, published aber pro Telegram nur einmal je Feld
+// -------------------- Parser --------------------
+
 void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
+
   const size_t n = buf.size();
   if (n < 10) return;
 
-  // Wir scannen den kompletten Buffer – billig bei ~<100 Bytes.
   for (size_t i = 0; i + 2 < n; i++) {
 
-    // SERIAL: 0C 78 + 4 BCD
-    if (!got_serial_ && i + 2 + 4 <= n && buf[i] == 0x0C && buf[i + 1] == 0x78) {
-      float sn = decode_bcd_(buf, i + 2, 4);
-      if (!isnan(sn)) {
-        got_serial_ = true;
-        ESP_LOGI(TAG, "SERIAL parsed: %.0f", sn);
-        if (serial_number_) serial_number_->publish_state(sn);
-      }
+    if (!got_serial_ && i + 6 <= n && buf[i]==0x0C && buf[i+1]==0x78) {
+      float sn = decode_bcd_(buf,i+2,4);
+      got_serial_ = true;
+      ESP_LOGI(TAG,"SERIAL parsed: %.0f",sn);
+      if(serial_number_) serial_number_->publish_state(sn);
     }
 
-    // ENERGY: 04 06 + 4 LE (hier als kWh: raw wird direkt kWh)
-    if (!got_energy_ && i + 2 + 4 <= n && buf[i] == 0x04 && buf[i + 1] == 0x06) {
-      uint32_t raw = decode_u_le_(buf, i + 2, 4);
-      got_energy_ = true;
-      float kwh = (float) raw;
-      ESP_LOGI(TAG, "ENERGY parsed: %.0f kWh (raw=%u)", kwh, (unsigned) raw);
-      if (total_energy_) total_energy_->publish_state(kwh);
+    if (!got_energy_ && i + 6 <= n && buf[i]==0x04 && buf[i+1]==0x06) {
+      uint32_t raw = decode_u_le_(buf,i+2,4);
+      float kwh = (float)raw;
+      got_energy_=true;
+      ESP_LOGI(TAG,"ENERGY parsed: %.0f kWh (raw=%u)",kwh,(unsigned)raw);
+      if(total_energy_) total_energy_->publish_state(kwh);
     }
 
-    // VOLUME: 0C 14 + 4 BCD => *0.01 m³
-    if (!got_volume_ && i + 2 + 4 <= n && buf[i] == 0x0C && buf[i + 1] == 0x14) {
-      float v = decode_bcd_(buf, i + 2, 4) * 0.01f;
-      if (!isnan(v)) {
-        got_volume_ = true;
-        ESP_LOGI(TAG, "VOLUME parsed: %.2f m³", v);
-        if (total_volume_) total_volume_->publish_state(v);
-      }
+    if (!got_volume_ && i + 6 <= n && buf[i]==0x0C && buf[i+1]==0x14) {
+      float v = decode_bcd_(buf,i+2,4)*0.01f;
+      got_volume_=true;
+      ESP_LOGI(TAG,"VOLUME parsed: %.2f m³",v);
+      if(total_volume_) total_volume_->publish_state(v);
     }
 
-    // FLOW TEMP: 0A 5A + 2 BCD => *0.1 °C
-    if (!got_tflow_ && i + 2 + 2 <= n && buf[i] == 0x0A && buf[i + 1] == 0x5A) {
-      float t = decode_bcd_(buf, i + 2, 2) * 0.1f;
-      if (!isnan(t)) {
-        got_tflow_ = true;
-        ESP_LOGI(TAG, "FLOW TEMP parsed: %.1f °C", t);
-        if (temp_flow_) temp_flow_->publish_state(t);
-      }
+    if (!got_tflow_ && i + 4 <= n && buf[i]==0x0A && buf[i+1]==0x5A) {
+      float t = decode_bcd_(buf,i+2,2)*0.1f;
+      got_tflow_=true;
+      ESP_LOGI(TAG,"FLOW TEMP parsed: %.1f °C",t);
+      if(temp_flow_) temp_flow_->publish_state(t);
     }
 
-    // RETURN TEMP: 0A 5E + 2 BCD => *0.1 °C
-    if (!got_tret_ && i + 2 + 2 <= n && buf[i] == 0x0A && buf[i + 1] == 0x5E) {
-      float t = decode_bcd_(buf, i + 2, 2) * 0.1f;
-      if (!isnan(t)) {
-        got_tret_ = true;
-        ESP_LOGI(TAG, "RETURN TEMP parsed: %.1f °C", t);
-        if (temp_return_) temp_return_->publish_state(t);
-      }
+    if (!got_tret_ && i + 4 <= n && buf[i]==0x0A && buf[i+1]==0x5E) {
+      float t = decode_bcd_(buf,i+2,2)*0.1f;
+      got_tret_=true;
+      ESP_LOGI(TAG,"RETURN TEMP parsed: %.1f °C",t);
+      if(temp_return_) temp_return_->publish_state(t);
     }
 
-    // DELTA T: 0B 61 + 3 BCD => *0.01 K
-    if (!got_tdiff_ && i + 2 + 3 <= n && buf[i] == 0x0B && buf[i + 1] == 0x61) {
-      float dt = decode_bcd_(buf, i + 2, 3) * 0.01f;
-      if (!isnan(dt)) {
-        got_tdiff_ = true;
-        ESP_LOGI(TAG, "DELTA T parsed: %.2f K", dt);
-        if (temp_diff_) temp_diff_->publish_state(dt);
-      }
+    if (!got_tdiff_ && i + 5 <= n && buf[i]==0x0B && buf[i+1]==0x61) {
+      float dt = decode_bcd_(buf,i+2,3)*0.01f;
+      got_tdiff_=true;
+      ESP_LOGI(TAG,"DELTA T parsed: %.2f K",dt);
+      if(temp_diff_) temp_diff_->publish_state(dt);
     }
 
-    // METER TIME: 04 6D + 4 Bytes CP32
-    if (!got_time_ && i + 2 + 4 <= n && buf[i] == 0x04 && buf[i + 1] == 0x6D) {
+    if (!got_time_ && i + 6 <= n && buf[i]==0x04 && buf[i+1]==0x6D) {
       std::string ts;
-      if (decode_cp32_datetime_(buf, i + 2, ts)) {
-        got_time_ = true;
-        ESP_LOGI(TAG, "TIME parsed: %s", ts.c_str());
-        if (meter_time_) meter_time_->publish_state(ts);
+      if(decode_cp32_datetime_(buf,i+2,ts)) {
+        got_time_=true;
+        ESP_LOGI(TAG,"TIME parsed: %s",ts.c_str());
+        if(meter_time_) meter_time_->publish_state(ts);
       }
+    }
+
+    if (!got_operating_ && i + 4 <= n && buf[i]==0x02 && buf[i+1]==0x27) {
+      uint32_t days = decode_u_le_(buf,i+2,2);
+      got_operating_=true;
+      ESP_LOGI(TAG,"OPERATING TIME parsed: %u days",(unsigned)days);
+      if(operating_time_) operating_time_->publish_state(days);
+    }
+
+    if (!got_error_ && i + 4 <= n && buf[i]==0x09 && buf[i+1]==0xFD && buf[i+2]==0x0E) {
+      uint32_t hours = buf[i+3];
+      got_error_=true;
+      ESP_LOGI(TAG,"ERROR TIME parsed: %u h",(unsigned)hours);
+      if(error_time_) error_time_->publish_state(hours);
     }
   }
 }
