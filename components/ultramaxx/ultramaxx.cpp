@@ -5,7 +5,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.11";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.12";
 
 enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
 static UMState state = UM_IDLE;
@@ -34,45 +34,35 @@ uint32_t UltraMaXXComponent::decode_u_le_(const std::vector<uint8_t> &data, size
 }
 
 bool UltraMaXXComponent::decode_cp32_datetime_(const std::vector<uint8_t> &data,
-                                              size_t start,
-                                              std::string &out) const {
+                                               size_t start,
+                                               std::string &out) const {
+
   if (start + 4 > data.size()) return false;
 
-  // CP32 (Type F, EN13757-3): 32-bit compound date/time, LITTLE ENDIAN in M-Bus payload.
-  // Octet1 = LSB. Bits:
-  //  1..6 minute, bit8 IV, 9..13 hour, 14..15 hundred-year, bit16 SU,
-  //  17..21 day, 25..28 month, year = bits 22..24 and 29..32.
-  const uint32_t v =
-      ((uint32_t) data[start + 0] <<  0) |
-      ((uint32_t) data[start + 1] <<  8) |
-      ((uint32_t) data[start + 2] << 16) |
-      ((uint32_t) data[start + 3] << 24);
+  const uint8_t b0 = data[start + 0];
+  const uint8_t b1 = data[start + 1];
+  const uint8_t b2 = data[start + 2];
+  const uint8_t b3 = data[start + 3];
 
-  const uint8_t minute = (uint8_t)((v >> 0) & 0x3F);          // bits 1..6
-  const bool iv = ((v >> 7) & 0x01) != 0;                     // bit 8
-  const uint8_t hour   = (uint8_t)((v >> 8) & 0x1F);          // bits 9..13
-  const uint8_t hund   = (uint8_t)((v >> 13) & 0x03);         // bits 14..15
-  // const bool su = ((v >> 15) & 0x01) != 0;                 // bit 16 (optional)
-  const uint8_t day    = (uint8_t)((v >> 16) & 0x1F);         // bits 17..21
-  const uint8_t month  = (uint8_t)((v >> 24) & 0x0F);         // bits 25..28
+  // ALLMESS TYPE-F (EN1434 Variant)
 
-  const uint8_t year_low3  = (uint8_t)((v >> 21) & 0x07);     // bits 22..24
-  const uint8_t year_high4 = (uint8_t)((v >> 28) & 0x0F);     // bits 29..32
-  const uint8_t year = (uint8_t)(year_low3 | (year_high4 << 3)); // 0..99 typical
+  const uint8_t minute =  b0 & 0x3F;
+  const uint8_t hour   =  b1 & 0x1F;
+  const uint8_t day    =  b2 & 0x1F;
+  const uint8_t month  =  b3 & 0x0F;
 
-  if (iv) return false; // invalid timestamp flagged by meter
+  const uint8_t year =
+      ((b2 >> 5) & 0x07) |   // year low
+      ((b3 >> 1) & 0x78);    // year high
 
-  // Sanity
-  if (minute > 59 || hour > 23 || day < 1 || day > 31 || month < 1 || month > 12) return false;
-
-  int full_year = 1900 + 100 * (int)hund + (int)year;
-
-  // Compatibility recommendation (years 00..80 => 2000..2080) if meter uses circular 2-digit year:
-  // Only apply if hund==0 and computed year looks like 19xx but should be 20xx.
-  if (hund == 0 && year <= 80) full_year = 2000 + (int)year;
+  if (minute > 59 || hour > 23 || day == 0 || day > 31 || month == 0 || month > 12)
+    return false;
 
   char buf[32];
-  std::snprintf(buf, sizeof(buf), "%02u.%02u.%04d %02u:%02u", day, month, full_year, hour, minute);
+  std::snprintf(buf, sizeof(buf),
+                "%02u.%02u 20%02u %02u:%02u",
+                day, month, year, hour, minute);
+
   out = buf;
   return true;
 }
