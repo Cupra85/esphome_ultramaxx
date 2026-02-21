@@ -5,7 +5,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.8";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.9";
 
 enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
 static UMState state = UM_IDLE;
@@ -40,17 +40,25 @@ bool UltraMaXXComponent::decode_cp32_datetime_(
 
   if (start + 4 > data.size()) return false;
 
-  const uint8_t b0 = data[start + 0];
-  const uint8_t b1 = data[start + 1];
-  const uint8_t b2 = data[start + 2];
-  const uint8_t b3 = data[start + 3];
+  // ALLMESS CP32 = LITTLE ENDIAN !!!
+  const uint32_t v =
+      ((uint32_t)data[start + 3] << 24) |
+      ((uint32_t)data[start + 2] << 16) |
+      ((uint32_t)data[start + 1] <<  8) |
+      ((uint32_t)data[start + 0]);
 
-  // M-Bus CP32 Type F (Allmess kompatibel)
-  const uint8_t minute = b0 & 0x3F;
-  const uint8_t hour   = b1 & 0x1F;
-  const uint8_t day    = b2 & 0x1F;
-  const uint8_t month  = b3 & 0x0F;
-  const uint8_t year   = 2000 + ((b3 >> 4) & 0x0F);
+  const uint8_t minute = (v      ) & 0x3F;
+  const uint8_t hour   = (v >> 8 ) & 0x1F;
+  const uint8_t day    = (v >> 16) & 0x1F;
+  const uint8_t month  = (v >> 24) & 0x0F;
+
+  // Jahr = 7 Bit (Splitfield)
+  const uint8_t year =
+      ((v >> 21) & 0x07) |
+      (((v >> 28) & 0x0F) << 3);
+
+  // Allmess UltraMaXX liefert Jahre ab 2000
+  const uint16_t full_year = 2000 + year;
 
   if (minute > 59 || hour > 23 || day < 1 || day > 31 || month < 1 || month > 12)
     return false;
@@ -58,11 +66,12 @@ bool UltraMaXXComponent::decode_cp32_datetime_(
   char buf[32];
   std::snprintf(buf, sizeof(buf),
                 "%02u.%02u.%u %02u:%02u",
-                day, month, year, hour, minute);
+                day, month, full_year, hour, minute);
 
   out = buf;
   return true;
 }
+
 // -------------------- Flags --------------------
 
 void UltraMaXXComponent::reset_parse_flags_() {
