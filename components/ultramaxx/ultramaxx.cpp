@@ -5,7 +5,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.16";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v7.0";
 
 enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
 static UMState state = UM_IDLE;
@@ -60,22 +60,49 @@ bool UltraMaXXComponent::decode_cp32_datetime_(
   const uint8_t year =
       (uint8_t)(((b2 & 0xE0) >> 5) | ((b3 & 0xF0) >> 1)); // 0..127
 
-  // Sanity
   if (minute > 59 || hour > 23 || day < 1 || day > 31 || month < 1 || month > 12) return false;
 
   const int full_year = 2000 + (int) year;
 
   char buf[40];
-  // Wir geben lokale Zählerzeit aus. DST-Flag kann man optional sehen:
-  // -> Wenn du willst, kann ich " DST" / " STD" anhängen, aber erstmal clean:
   std::snprintf(buf, sizeof(buf), "%02u.%02u.%04d %02u:%02u", day, month, full_year, hour, minute);
-
-  // Wenn du DST im String sehen willst, nimm stattdessen:
-  // std::snprintf(buf, sizeof(buf), "%02u.%02u.%04d %02u:%02u (%s)", day, month, full_year, hour, minute, dst ? "DST" : "STD");
 
   (void) dst; // aktuell nur optional genutzt
   out = buf;
   return true;
+}
+
+// -------------------- Status Decoder (Byte-Pos 16) --------------------
+// Bitmask-fähig gemäß deiner Tabelle:
+// 0x00 = All OK
+// 0x04 = Low Battery
+// 0x08 = Permanent Error
+// 0x10 = Temporary Error
+std::string UltraMaXXComponent::decode_status_text_(uint8_t status) const {
+  // ✅ Explizit: 0x00 => "All OK"
+  if (status == 0x00) return "All OK";
+
+  std::string s;
+  auto add = [&](const char *part) {
+    if (!s.empty()) s += " + ";
+    s += part;
+  };
+
+  if (status & 0x04) add("Low Battery");
+  if (status & 0x08) add("Permanent Error");
+  if (status & 0x10) add("Temporary Error");
+
+  const uint8_t known = 0x04 | 0x08 | 0x10;
+  const uint8_t unknown = status & ~known;
+  if (unknown) {
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), "Unknown(0x%02X)", unknown);
+    add(buf);
+  }
+
+  char head[16];
+  std::snprintf(head, sizeof(head), "0x%02X: ", status);
+  return std::string(head) + s;
 }
 
 // -------------------- Flags --------------------
@@ -90,6 +117,8 @@ void UltraMaXXComponent::reset_parse_flags_() {
   got_time_   = false;
   got_operating_ = false;
   got_error_ = false;
+  got_access_counter_ = false;
+  got_status_ = false;
 }
 
 // -------------------- Parser --------------------
@@ -98,6 +127,30 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
   const size_t n = buf.size();
   if (n < 10) return;
 
+  // -------- Fixed Data Header Felder (Byte-Pos 15/16) --------
+  // Byte-Pos laut deiner Tabelle:
+  // 15 = Zugriffszähler
+  // 16 = Status
+  if (n > 16) {
+    if (!got_access_counter_) {
+      const uint8_t access = buf[15];
+      got_access_counter_ = true;
+      ESP_LOGI(TAG, "ACCESS COUNTER parsed: %u", (unsigned) access);
+      if (access_counter_) access_counter_->publish_state((float) access);
+    }
+
+    if (!got_status_) {
+      const uint8_t status = buf[16];
+      got_status_ = true;
+
+      // ✅ Status wird IMMER verarbeitet, auch wenn status == 0x00
+      const std::string st = decode_status_text_(status);
+      ESP_LOGI(TAG, "STATUS parsed: %s", st.c_str());
+      if (status_text_) status_text_->publish_state(st);
+    }
+  }
+
+  // -------- Variable Data Blocks (Marker-Scan wie bisher) --------
   for (size_t i = 0; i + 2 < n; i++) {
 
     if (!got_serial_ && i + 6 <= n && buf[i]==0x0C && buf[i+1]==0x78) {
