@@ -107,7 +107,6 @@ async def to_code(config):
         (CONF_SERIAL_NUMBER, "set_serial_number_sensor", sensor.new_sensor),
         (CONF_TOTAL_ENERGY, "set_total_energy_sensor", sensor.new_sensor),
         (CONF_TOTAL_VOLUME, "set_total_volume_sensor", sensor.new_sensor),
-        (CONF_CURRENT_POWER, "set_current_power_sensor", sensor.new_sensor),
         (CONF_TEMP_FLOW, "set_temp_flow_sensor", sensor.new_sensor),
         (CONF_TEMP_RETURN, "set_temp_return_sensor", sensor.new_sensor),
         (CONF_TEMP_DIFF, "set_temp_diff_sensor", sensor.new_sensor),
