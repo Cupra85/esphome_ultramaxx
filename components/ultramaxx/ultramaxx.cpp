@@ -5,7 +5,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.14";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v6.15";
 
 enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
 static UMState state = UM_IDLE;
@@ -33,36 +33,39 @@ uint32_t UltraMaXXComponent::decode_u_le_(const std::vector<uint8_t> &data, size
   return v;
 }
 
-bool UltraMaXXComponent::decode_cp32_datetime_(const std::vector<uint8_t> &data,
-                                               size_t start,
-                                               std::string &out) const {
+bool UltraMaXXComponent::decode_cp32_datetime_(
+    const std::vector<uint8_t> &data,
+    size_t start,
+    std::string &out) const {
 
   if (start + 4 > data.size()) return false;
 
-  const uint8_t b0 = data[start + 0];
-  const uint8_t b1 = data[start + 1];
-  const uint8_t b2 = data[start + 2];
-  const uint8_t b3 = data[start + 3];
+  // Type F: transmitted as dlow..dhigh (little-endian)
+  const uint32_t v =
+      ((uint32_t)data[start + 0] << 0)  |
+      ((uint32_t)data[start + 1] << 8)  |
+      ((uint32_t)data[start + 2] << 16) |
+      ((uint32_t)data[start + 3] << 24);
 
-  // ALLMESS TYPE-F (EN1434 Variant)
+  const uint8_t minute = (uint8_t)( v        & 0x3F);   // 0..59
+  uint8_t hour         = (uint8_t)((v >>  8) & 0x1F);   // 0..23
+  const bool su_dst     = ((v >> 15) & 0x01) != 0;       // summer time flag (SU)
+  const uint8_t day     = (uint8_t)((v >> 16) & 0x1F);   // 1..31
+  const uint8_t year7   = (uint8_t)((v >> 21) & 0x7F);   // 0..127 (year since 2000)
+  const uint8_t month   = (uint8_t)((v >> 24) & 0x0F);   // 1..12
 
-  const uint8_t minute =  b0 & 0x3F;
-  const uint8_t hour   =  b1 & 0x1F;
-  const uint8_t day    =  b2 & 0x1F;
-  const uint8_t month  =  b3 & 0x0F;
+  // Basic sanity
+  if (minute > 59 || hour > 23 || day < 1 || day > 31 || month < 1 || month > 12) return false;
 
-  const uint8_t year =
-      ((b2 >> 5) & 0x07) |   // year low
-      ((b3 >> 1) & 0x78);    // year high
+  const uint16_t year = 2000 + year7;
 
-  if (minute > 59 || hour > 23 || day == 0 || day > 31 || month == 0 || month > 12)
-    return false;
+  // NOTE:
+  // su_dst is only a flag. Whether you must add/subtract depends on how the meter stores local time.
+  // If your parsed time is always off by a constant value, it's usually the meter clock itself.
+  // (You can later apply a fixed offset if you want.)
 
   char buf[32];
-  std::snprintf(buf, sizeof(buf),
-                "%02u.%02u 20%02u %02u:%02u",
-                day, month, year, hour, minute);
-
+  std::snprintf(buf, sizeof(buf), "%02u.%02u.%u %02u:%02u", day, month, year, hour, minute);
   out = buf;
   return true;
 }
