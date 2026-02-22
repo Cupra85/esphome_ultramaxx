@@ -49,10 +49,10 @@ CONFIG_SCHEMA = (
                 unit_of_measurement="°C", accuracy_decimals=1
             ),
             cv.Optional(CONF_TEMP_DIFF): sensor.sensor_schema(
-                unit_of_measurement="K", accuracy_decimals=2
+                unit_of_measurement="°C", accuracy_decimals=2
             ),
             cv.Optional(CONF_OPERATING_TIME): sensor.sensor_schema(
-                unit_of_measurement="d", accuracy_decimals=0
+                unit_of_measurement="days", accuracy_decimals=0
             ),
             cv.Optional(CONF_ERROR_TIME): sensor.sensor_schema(
                 unit_of_measurement="h", accuracy_decimals=0
