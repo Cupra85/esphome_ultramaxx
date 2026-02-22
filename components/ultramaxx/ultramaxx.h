@@ -26,8 +26,10 @@ class UltraMaXXComponent : public PollingComponent, public uart::UARTDevice {
   void set_temp_diff_sensor(sensor::Sensor *s) { temp_diff_ = s; }
   void set_operating_time_sensor(sensor::Sensor *s) { operating_time_ = s; }
   void set_error_time_sensor(sensor::Sensor *s) { error_time_ = s; }
+  void set_access_counter_sensor(sensor::Sensor *s) { access_counter_ = s; }
 
   void set_meter_time_sensor(text_sensor::TextSensor *s) { meter_time_ = s; }
+  void set_status_text_sensor(text_sensor::TextSensor *s) { status_text_ = s; }
 
  protected:
   float decode_bcd_(const std::vector<uint8_t> &data, size_t start, size_t len) const;
@@ -36,6 +38,8 @@ class UltraMaXXComponent : public PollingComponent, public uart::UARTDevice {
 
   void parse_and_publish_(const std::vector<uint8_t> &buf);
   void reset_parse_flags_();
+
+  std::string decode_status_text_(uint8_t status) const;
 
   sensor::Sensor *serial_number_{nullptr};
   sensor::Sensor *total_energy_{nullptr};
@@ -46,8 +50,10 @@ class UltraMaXXComponent : public PollingComponent, public uart::UARTDevice {
   sensor::Sensor *temp_diff_{nullptr};
   sensor::Sensor *operating_time_{nullptr};
   sensor::Sensor *error_time_{nullptr};
-
+  sensor::Sensor *access_counter_{nullptr};
+  
   text_sensor::TextSensor *meter_time_{nullptr};
+  text_sensor::TextSensor *status_text_{nullptr};
 
   uint32_t state_ts_{0};
   uint32_t wake_start_{0};
@@ -68,7 +74,9 @@ class UltraMaXXComponent : public PollingComponent, public uart::UARTDevice {
   bool got_time_{false};
   bool got_operating_{false};
   bool got_error_{false};
+  bool got_access_counter_{false};
+  bool got_status_{false};
 };
 
-}  
-}
+}  // namespace ultramaxx
+}  // namespace esphome
