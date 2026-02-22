@@ -21,10 +21,8 @@ CONF_TEMP_DIFF = "temp_diff"
 CONF_METER_TIME = "meter_time"
 CONF_OPERATING_TIME = "operating_time"
 CONF_ERROR_TIME = "error_time"
-
-# NEU:
-CONF_ACCESS_COUNTER = "access_counter"      # Byte-Pos 15
-CONF_STATUS_TEXT = "status_text"            # Byte-Pos 16
+CONF_ACCESS_COUNTER = "access_counter"
+CONF_STATUS_TEXT = "status_text"
 
 CONFIG_SCHEMA = (
     cv.Schema(
