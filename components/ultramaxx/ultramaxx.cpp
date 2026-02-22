@@ -5,7 +5,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v7.1";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v7.2";
 
 enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
 static UMState state = UM_IDLE;
@@ -92,6 +92,7 @@ std::string UltraMaXXComponent::decode_status_text_(uint8_t status) const {
   if (status & 0x08) add("Permanent Error");
   if (status & 0x10) add("Temporary Error");
 
+  // Unbekannte Bits nur als Unknown(...) anhängen – aber ohne "0x14:" Prefix.
   const uint8_t known = 0x04 | 0x08 | 0x10;
   const uint8_t unknown = status & ~known;
   if (unknown) {
@@ -100,9 +101,7 @@ std::string UltraMaXXComponent::decode_status_text_(uint8_t status) const {
     add(buf);
   }
 
-  char head[16];
-  std::snprintf(head, sizeof(head), "0x%02X: ", status);
-  return std::string(head) + s;
+  return s.empty() ? "Unknown" : s;
 }
 
 // -------------------- Flags --------------------
@@ -143,7 +142,6 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
       const uint8_t status = buf[16];
       got_status_ = true;
 
-      // ✅ Status wird IMMER verarbeitet, auch wenn status == 0x00
       const std::string st = decode_status_text_(status);
       ESP_LOGI(TAG, "STATUS parsed: %s", st.c_str());
       if (status_text_) status_text_->publish_state(st);
