@@ -22,13 +22,19 @@ CONF_METER_TIME = "meter_time"
 CONF_OPERATING_TIME = "operating_time"
 CONF_ERROR_TIME = "error_time"
 
+# NEU:
+CONF_ACCESS_COUNTER = "access_counter"      # Byte-Pos 15
+CONF_STATUS_TEXT = "status_text"            # Byte-Pos 16
+
 CONFIG_SCHEMA = (
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(UltraMaXXComponent),
             cv.Required(CONF_UART_ID): cv.use_id(uart.UARTComponent),
 
-            cv.Optional(CONF_SERIAL_NUMBER): sensor.sensor_schema(),
+            cv.Optional(CONF_SERIAL_NUMBER): sensor.sensor_schema(
+                accuracy_decimals=0
+            ),
             cv.Optional(CONF_TOTAL_ENERGY): sensor.sensor_schema(
                 unit_of_measurement="kWh", accuracy_decimals=0
             ),
@@ -53,8 +59,13 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_ERROR_TIME): sensor.sensor_schema(
                 unit_of_measurement="h", accuracy_decimals=0
             ),
+            cv.Optional(CONF_ACCESS_COUNTER): sensor.sensor_schema(
+                accuracy_decimals=0
+            ),
 
             cv.Optional(CONF_METER_TIME): text_sensor.text_sensor_schema(),
+
+            cv.Optional(CONF_STATUS_TEXT): text_sensor.text_sensor_schema(),
         }
     )
     .extend(cv.polling_component_schema("60s"))
@@ -78,6 +89,7 @@ async def to_code(config):
         (CONF_TEMP_DIFF, "set_temp_diff_sensor", sensor.new_sensor),
         (CONF_OPERATING_TIME, "set_operating_time_sensor", sensor.new_sensor),
         (CONF_ERROR_TIME, "set_error_time_sensor", sensor.new_sensor),
+        (CONF_ACCESS_COUNTER, "set_access_counter_sensor", sensor.new_sensor),
     ]
 
     for key, setter, factory in mapping:
@@ -88,3 +100,7 @@ async def to_code(config):
     if CONF_METER_TIME in config:
         ts = await text_sensor.new_text_sensor(config[CONF_METER_TIME])
         cg.add(var.set_meter_time_sensor(ts))
+
+    if CONF_STATUS_TEXT in config:
+        st = await text_sensor.new_text_sensor(config[CONF_STATUS_TEXT])
+        cg.add(var.set_status_text_sensor(st))
