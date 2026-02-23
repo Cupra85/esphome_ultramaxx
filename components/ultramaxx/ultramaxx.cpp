@@ -5,7 +5,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v7.5";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v7.6";
 
 enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
 static UMState state = UM_IDLE;
@@ -279,7 +279,17 @@ void UltraMaXXComponent::loop() {
 
     this->parse_and_publish_(rx_buffer_);
 
+    // ✅ Nur wenn Frame komplett → EINMAL loggen
     if (expected_len_ > 0 && rx_buffer_.size() >= expected_len_) {
+
+      std::string hex;
+      char tmp[4];
+      for (uint8_t b : rx_buffer_) {
+        std::snprintf(tmp,sizeof(tmp),"%02X ",b);
+        hex += tmp;
+      }
+      ESP_LOGI(TAG,"LONGFRAME HEX: %s",hex.c_str());
+      
       if (rx_buffer_.back() != 0x16) {
         ESP_LOGW(TAG, "Frame length reached (%u) but last byte != 0x16 (got %02X) -> resync",
                  (unsigned) rx_buffer_.size(), rx_buffer_.back());
