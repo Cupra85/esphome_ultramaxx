@@ -1,5 +1,4 @@
 #pragma once
-
 #include "esphome/core/component.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/components/sensor/sensor.h"
@@ -15,68 +14,53 @@ class UltraMaXXComponent : public PollingComponent, public uart::UARTDevice {
   void setup() override;
   void update() override;
   void loop() override;
-  float get_setup_priority() const override { return setup_priority::DATA; }
 
-  void set_serial_number_sensor(sensor::Sensor *s) { serial_number_ = s; }
-  void set_total_energy_sensor(sensor::Sensor *s) { total_energy_ = s; }
-  void set_total_volume_sensor(sensor::Sensor *s) { total_volume_ = s; }
-  void set_current_power_sensor(sensor::Sensor *s) { current_power_ = s; }
-  void set_temp_flow_sensor(sensor::Sensor *s) { temp_flow_ = s; }
-  void set_temp_return_sensor(sensor::Sensor *s) { temp_return_ = s; }
-  void set_temp_diff_sensor(sensor::Sensor *s) { temp_diff_ = s; }
-  void set_operating_time_sensor(sensor::Sensor *s) { operating_time_ = s; }
-  void set_error_time_sensor(sensor::Sensor *s) { error_time_ = s; }
-  void set_access_counter_sensor(sensor::Sensor *s) { access_counter_ = s; }
+  void set_serial_number_sensor(sensor::Sensor *s){serial_number_=s;}
+  void set_total_energy_sensor(sensor::Sensor *s){total_energy_=s;}
+  void set_total_volume_sensor(sensor::Sensor *s){total_volume_=s;}
+  void set_current_power_sensor(sensor::Sensor *s){current_power_=s;}
+  void set_flow_sensor(sensor::Sensor *s){flow_=s;}
+  void set_temp_flow_sensor(sensor::Sensor *s){temp_flow_=s;}
+  void set_temp_return_sensor(sensor::Sensor *s){temp_return_=s;}
+  void set_temp_diff_sensor(sensor::Sensor *s){temp_diff_=s;}
+  void set_operating_time_sensor(sensor::Sensor *s){operating_time_=s;}
+  void set_firmware_version_sensor(sensor::Sensor *s){firmware_version_=s;}
+  void set_software_version_sensor(sensor::Sensor *s){software_version_=s;}
+  void set_access_counter_sensor(sensor::Sensor *s){access_counter_=s;}
 
-  void set_meter_time_sensor(text_sensor::TextSensor *s) { meter_time_ = s; }
-  void set_status_text_sensor(text_sensor::TextSensor *s) { status_text_ = s; }
+  void set_meter_time_sensor(text_sensor::TextSensor *s){meter_time_=s;}
+  void set_status_text_sensor(text_sensor::TextSensor *s){status_text_=s;}
 
  protected:
-  float decode_bcd_(const std::vector<uint8_t> &data, size_t start, size_t len) const;
-  uint32_t decode_u_le_(const std::vector<uint8_t> &data, size_t start, size_t len) const;
-  bool decode_cp32_datetime_(const std::vector<uint8_t> &data, size_t start, std::string &out) const;
+  float decode_bcd_(const std::vector<uint8_t>&,size_t,size_t) const;
+  uint32_t decode_u_le_(const std::vector<uint8_t>&,size_t,size_t) const;
+  bool decode_cp32_datetime_(const std::vector<uint8_t>&,size_t,std::string&) const;
 
-  void parse_and_publish_(const std::vector<uint8_t> &buf);
+  void parse_and_publish_(const std::vector<uint8_t>&);
   void reset_parse_flags_();
+  std::string decode_status_text_(uint8_t) const;
 
-  std::string decode_status_text_(uint8_t status) const;
+  sensor::Sensor *serial_number_{};
+  sensor::Sensor *total_energy_{};
+  sensor::Sensor *total_volume_{};
+  sensor::Sensor *current_power_{};
+  sensor::Sensor *flow_{};
+  sensor::Sensor *temp_flow_{};
+  sensor::Sensor *temp_return_{};
+  sensor::Sensor *temp_diff_{};
+  sensor::Sensor *operating_time_{};
+  sensor::Sensor *firmware_version_{};
+  sensor::Sensor *software_version_{};
+  sensor::Sensor *access_counter_{};
 
-  sensor::Sensor *serial_number_{nullptr};
-  sensor::Sensor *total_energy_{nullptr};
-  sensor::Sensor *total_volume_{nullptr};
-  sensor::Sensor *current_power_{nullptr};
-  sensor::Sensor *temp_flow_{nullptr};
-  sensor::Sensor *temp_return_{nullptr};
-  sensor::Sensor *temp_diff_{nullptr};
-  sensor::Sensor *operating_time_{nullptr};
-  sensor::Sensor *error_time_{nullptr};
-  sensor::Sensor *access_counter_{nullptr};
-  
-  text_sensor::TextSensor *meter_time_{nullptr};
-  text_sensor::TextSensor *status_text_{nullptr};
+  text_sensor::TextSensor *meter_time_{};
+  text_sensor::TextSensor *status_text_{};
 
-  uint32_t state_ts_{0};
-  uint32_t wake_start_{0};
-  uint32_t last_send_{0};
-
-  bool in_frame_{false};
-  size_t expected_len_{0};
-  uint32_t last_rx_ms_{0};
-  bool fcb_toggle_{false};
-  std::vector<uint8_t> rx_buffer_;
-
-  bool got_serial_{false};
-  bool got_energy_{false};
-  bool got_volume_{false};
-  bool got_tflow_{false};
-  bool got_tret_{false};
-  bool got_tdiff_{false};
-  bool got_time_{false};
-  bool got_operating_{false};
-  bool got_error_{false};
-  bool got_access_counter_{false};
-  bool got_status_{false};
+  bool got_power_{false};
+  bool got_flow_{false};
+  bool got_fw_{false};
+  bool got_sw_{false};
 };
 
-}  // namespace ultramaxx
-}  // namespace esphome
+}
+}
