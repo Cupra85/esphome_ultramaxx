@@ -11,7 +11,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.2";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.3";
 
 // --------------------------------------------------------------------------------------
 // Hinweis:
