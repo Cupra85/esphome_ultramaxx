@@ -11,7 +11,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.1";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.2";
 
 // --------------------------------------------------------------------------------------
 // Hinweis:
@@ -259,19 +259,32 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
       if (operating_time_) operating_time_->publish_state((float) days);
     }
 
-    // POWER: 0x0B 0x2D/0x2E + 3B BCD (x0.1 kW)  (Annahme wie bisher)
-    if (!got_power_ && i + 5 <= n && buf[i] == 0x0B && (buf[i + 1] == 0x2D || buf[i + 1] == 0x2E)) {
+    // ---------------- POWER ----------------
+    // Viele UltraMaXX senden verschiedene VIF Varianten -> breiter match
+    if (!got_power_ && i + 5 <= n && buf[i] == 0x0B &&
+       (buf[i + 1] == 0x2D || buf[i + 1] == 0x2E || buf[i + 1] == 0x2A || buf[i + 1] == 0x2B)) {
+
       float p = decode_bcd_(buf, i + 2, 3) * 0.1f;
       got_power_ = true;
-      ESP_LOGI(TAG, "POWER parsed: %.1f kW", p);
+
+      ESP_LOGW(TAG, "POWER FOUND @%u VIF=%02X RAW=%02X %02X %02X",
+               (unsigned)i, buf[i+1], buf[i+2], buf[i+3], buf[i+4]);
+
       if (current_power_) current_power_->publish_state(p);
     }
 
-    // FLOW: 0x0B 0x3B + 3B BCD (l/h)  (Annahme wie bisher)
-    if (!got_flow_ && i + 5 <= n && buf[i] == 0x0B && buf[i + 1] == 0x3B) {
+
+    // ---------------- FLOW ----------------
+    // FLOW kommt oft mit verschiedenen VIF Varianten
+    if (!got_flow_ && i + 5 <= n && buf[i] == 0x0B &&
+       (buf[i + 1] == 0x3B || buf[i + 1] == 0x3A || buf[i + 1] == 0x3C)) {
+
       float f = decode_bcd_(buf, i + 2, 3);
       got_flow_ = true;
-      ESP_LOGI(TAG, "FLOW parsed: %.0f l/h", f);
+
+      ESP_LOGW(TAG, "FLOW FOUND @%u VIF=%02X RAW=%02X %02X %02X",
+               (unsigned)i, buf[i+1], buf[i+2], buf[i+3], buf[i+4]);
+
       if (flow_) flow_->publish_state(f);
     }
 
