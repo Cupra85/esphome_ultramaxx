@@ -5,7 +5,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v7.6";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.0";
 
 enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
 static UMState state = UM_IDLE;
@@ -209,12 +209,31 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
       ESP_LOGI(TAG,"OPERATING TIME parsed: %u days",(unsigned)days);
       if(operating_time_) operating_time_->publish_state(days);
     }
+    
+    if(!got_power_ && i+5<=n && buf[i]==0x0B && (buf[i+1]==0x2D || buf[i+1]==0x2E)){
+      float p = decode_bcd_(buf,i+2,3)*0.1f;
+      got_power_=true;
+      ESP_LOGI(TAG,"RETURN POWER parsed: %.1f °C",p);
+      if(current_power_) current_power_->publish_state(p);
+    }
 
-    if (!got_error_ && i + 4 <= n && buf[i]==0x09 && buf[i+1]==0xFD && buf[i+2]==0x0E) {
-      uint32_t hours = buf[i+3];
-      got_error_=true;
-      ESP_LOGI(TAG,"ERROR TIME parsed: %u h",(unsigned)hours);
-      if(error_time_) error_time_->publish_state(hours);
+    if(!got_flow_ && i+5<=n && buf[i]==0x0B && buf[i+1]==0x3B){
+      float f = decode_bcd_(buf,i+2,3);
+      got_flow_=true;
+      ESP_LOGI(TAG,"RETURN FLOW parsed: %.1f °C",f);
+      if(flow_) flow_->publish_state(f);
+    }
+
+    if(!got_fw_ && i+4<=n && buf[i]==0x09 && buf[i+1]==0xFD && buf[i+2]==0x0E){
+      got_fw_=true;
+      ESP_LOGI(TAG,"RETURN FIRMWARE parsed: %.1f °C",fw);
+      if(firmware_version_) firmware_version_->publish_state(fw);
+    }
+
+    if(!got_sw_ && i+4<=n && buf[i]==0x09 && buf[i+1]==0xFD && buf[i+2]==0x0F){
+      got_sw_=true;
+      ESP_LOGI(TAG,"RETURN SOFTWARE parsed: %.1f °C",sw);
+      if(software_version_) software_version_->publish_state(sw);
     }
   }
 }
