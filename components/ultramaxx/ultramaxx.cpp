@@ -11,7 +11,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.8";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.9";
 
 // --------------------------------------------------------------------------------------
 // Hinweis:
@@ -189,19 +189,18 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
   }
 
   // ---------------- VARIABLE DATA RECORDS ----------------
-  size_t i = 19;              // Start nach Fixed Header
-  const size_t end = n - 2;   // ohne CS + 0x16
+  size_t i = 19;
+  const size_t end = n - 2;
 
   while (i < end) {
 
     uint8_t dif = buf[i++];
-    if (dif == 0x2F) continue;  // filler
+    if (dif == 0x2F) continue;
 
     bool dif_ext   = dif & 0x80;
     bool dif_error = dif & 0x40;
     uint8_t dif_len_code = dif & 0x0F;
 
-    // Skip DIFE
     if (dif_ext) {
       while (i < end) {
         uint8_t dife = buf[i++];
@@ -215,7 +214,6 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     bool vif_ext = vif & 0x80;
     uint8_t vif_base = vif & 0x7F;
 
-    // Skip VIFE
     if (vif_ext) {
       while (i < end) {
         uint8_t vife = buf[i++];
@@ -223,7 +221,6 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
       }
     }
 
-    // Datenlänge laut DIF bestimmen
     size_t dlen = 0;
     switch (dif_len_code) {
       case 0x01: dlen = 1; break;
@@ -233,12 +230,12 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
       case 0x0A: dlen = 2; break;
       case 0x0B: dlen = 3; break;
       case 0x0C: dlen = 4; break;
-      default: return;  // verhindert Desync
+      default: return;
     }
 
     if (i + dlen > end) break;
 
-    // ---------------- INVALID CHECK ----------------
+    // -------- INVALID CHECK --------
     bool invalid_99 = false;
     if (dlen >= 2) {
       invalid_99 = true;
@@ -255,9 +252,11 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     // ================= SERIAL =================
     if (!g_got_serial && dif_len_code == 0x0C && vif_base == 0x78) {
       if (invalid_value) {
+        ESP_LOGI(TAG, "SERIAL parsed: unknown");
         if (serial_number_) serial_number_->publish_state(NAN);
       } else {
         float sn = decode_bcd_(buf, i, 4);
+        ESP_LOGI(TAG, "SERIAL parsed: %.0f", sn);
         if (serial_number_) serial_number_->publish_state(sn);
       }
       g_got_serial = true;
@@ -266,9 +265,11 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     // ================= ENERGY =================
     if (!g_got_energy && dif_len_code == 0x04 && vif_base == 0x06) {
       if (invalid_value) {
+        ESP_LOGI(TAG, "ENERGY parsed: unknown");
         if (total_energy_) total_energy_->publish_state(NAN);
       } else {
         uint32_t raw = decode_u_le_(buf, i, 4);
+        ESP_LOGI(TAG, "ENERGY parsed: %u kWh", (unsigned)raw);
         if (total_energy_) total_energy_->publish_state((float)raw);
       }
       g_got_energy = true;
@@ -277,9 +278,11 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     // ================= VOLUME =================
     if (!g_got_volume && dif_len_code == 0x0C && vif_base == 0x14) {
       if (invalid_value) {
+        ESP_LOGI(TAG, "VOLUME parsed: unknown");
         if (total_volume_) total_volume_->publish_state(NAN);
       } else {
         float v = decode_bcd_(buf, i, 4) * 0.01f;
+        ESP_LOGI(TAG, "VOLUME parsed: %.2f m³", v);
         if (total_volume_) total_volume_->publish_state(v);
       }
       g_got_volume = true;
@@ -288,9 +291,11 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     // ================= FLOW TEMP =================
     if (!g_got_tflow && dif_len_code == 0x0A && vif_base == 0x5A) {
       if (invalid_value) {
+        ESP_LOGI(TAG, "FLOW TEMP parsed: unknown");
         if (temp_flow_) temp_flow_->publish_state(NAN);
       } else {
         float t = decode_bcd_(buf, i, 2) * 0.1f;
+        ESP_LOGI(TAG, "FLOW TEMP parsed: %.1f °C", t);
         if (temp_flow_) temp_flow_->publish_state(t);
       }
       g_got_tflow = true;
@@ -299,9 +304,11 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     // ================= RETURN TEMP =================
     if (!g_got_tret && dif_len_code == 0x0A && vif_base == 0x5E) {
       if (invalid_value) {
+        ESP_LOGI(TAG, "RETURN TEMP parsed: unknown");
         if (temp_return_) temp_return_->publish_state(NAN);
       } else {
         float t = decode_bcd_(buf, i, 2) * 0.1f;
+        ESP_LOGI(TAG, "RETURN TEMP parsed: %.1f °C", t);
         if (temp_return_) temp_return_->publish_state(t);
       }
       g_got_tret = true;
@@ -310,9 +317,11 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     // ================= DELTA T =================
     if (!g_got_tdiff && dif_len_code == 0x0B && vif_base == 0x61) {
       if (invalid_value) {
+        ESP_LOGI(TAG, "DELTA T parsed: unknown");
         if (temp_diff_) temp_diff_->publish_state(NAN);
       } else {
         float dt = decode_bcd_(buf, i, 3) * 0.01f;
+        ESP_LOGI(TAG, "DELTA T parsed: %.2f K", dt);
         if (temp_diff_) temp_diff_->publish_state(dt);
       }
       g_got_tdiff = true;
@@ -322,9 +331,11 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     if (!got_power_ && dif_len_code == 0x0B &&
         (vif_base == 0x2D || vif_base == 0x2E)) {
       if (invalid_value) {
+        ESP_LOGI(TAG, "POWER parsed: unknown");
         if (current_power_) current_power_->publish_state(NAN);
       } else {
         float p = decode_bcd_(buf, i, 3) * 0.1f;
+        ESP_LOGI(TAG, "POWER parsed: %.1f kW", p);
         if (current_power_) current_power_->publish_state(p);
       }
       got_power_ = true;
@@ -333,9 +344,11 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     // ================= FLOW =================
     if (!got_flow_ && dif_len_code == 0x0B && vif_base == 0x3B) {
       if (invalid_value) {
+        ESP_LOGI(TAG, "FLOW parsed: unknown");
         if (flow_) flow_->publish_state(NAN);
       } else {
         float f = decode_bcd_(buf, i, 3);
+        ESP_LOGI(TAG, "FLOW parsed: %.0f l/h", f);
         if (flow_) flow_->publish_state(f);
       }
       got_flow_ = true;
@@ -344,23 +357,28 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     // ================= OPERATING TIME =================
     if (!g_got_operating && dif_len_code == 0x02 && vif_base == 0x27) {
       if (invalid_value) {
+        ESP_LOGI(TAG, "OPERATING TIME parsed: unknown");
         if (operating_time_) operating_time_->publish_state(NAN);
       } else {
         uint32_t days = decode_u_le_(buf, i, 2);
+        ESP_LOGI(TAG, "OPERATING TIME parsed: %u days", (unsigned)days);
         if (operating_time_) operating_time_->publish_state((float)days);
       }
       g_got_operating = true;
     }
 
-    // ================= METER TIME =================
+    // ================= TIME =================
     if (!g_got_time && dif_len_code == 0x04 && vif_base == 0x6D) {
       if (dif_error) {
+        ESP_LOGI(TAG, "TIME parsed: unknown");
         if (meter_time_) meter_time_->publish_state("unknown");
       } else {
         std::string ts;
         if (decode_cp32_datetime_(buf, i, ts)) {
+          ESP_LOGI(TAG, "TIME parsed: %s", ts.c_str());
           if (meter_time_) meter_time_->publish_state(ts);
         } else {
+          ESP_LOGI(TAG, "TIME parsed: unknown");
           if (meter_time_) meter_time_->publish_state("unknown");
         }
       }
