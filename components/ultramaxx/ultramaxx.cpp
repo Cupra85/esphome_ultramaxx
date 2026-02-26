@@ -46,7 +46,7 @@ static bool g_got_tret = false;
 static bool g_got_tdiff = false;
 static bool g_got_time = false;
 static bool g_got_operating = false;
-static bool g_got_access_counter = false
+static bool g_got_access_counter = false;
 static bool g_got_status = false;
 
 // --------------------------------------------------------------------------------------
