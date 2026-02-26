@@ -11,7 +11,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.9";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.10";
 
 // --------------------------------------------------------------------------------------
 // Hinweis:
@@ -48,6 +48,8 @@ static bool g_got_time = false;
 static bool g_got_operating = false;
 static bool g_got_access_counter = false;
 static bool g_got_status = false;
+static bool got_fw_ = false;
+static bool got_sw_ = false;
 
 // --------------------------------------------------------------------------------------
 // Decoder
@@ -383,6 +385,40 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
         }
       }
       g_got_time = true;
+    }
+
+    // ================= FIRMWARE VERSION =================
+    if (!got_fw_ && dif_len_code == 0x01 && vif == 0xFD) {
+      uint8_t vife = buf[i - 1];  // letztes gelesenes VIFE
+
+      if (vife == 0x0E) {
+        if (invalid_value) {
+          ESP_LOGI(TAG, "FIRMWARE VERSION parsed: unknown");
+          if (firmware_version_) firmware_version_->publish_state(NAN);
+        } else {
+          uint8_t fw = buf[i];
+          ESP_LOGI(TAG, "FIRMWARE VERSION parsed: %u", fw);
+          if (firmware_version_) firmware_version_->publish_state((float)fw);
+        }
+        got_fw_ = true;
+      }
+    }
+
+    // ================= SOFTWARE VERSION =================
+    if (!got_sw_ && dif_len_code == 0x01 && vif == 0xFD) {
+      uint8_t vife = buf[i - 1];
+
+      if (vife == 0x0F) {
+        if (invalid_value) {
+          ESP_LOGI(TAG, "SOFTWARE VERSION parsed: unknown");
+          if (software_version_) software_version_->publish_state(NAN);
+        } else {
+          uint8_t sw = buf[i];
+          ESP_LOGI(TAG, "SOFTWARE VERSION parsed: %u", sw);
+          if (software_version_) software_version_->publish_state((float)sw);
+        }
+        got_sw_ = true;
+      }
     }
 
     i += dlen;
