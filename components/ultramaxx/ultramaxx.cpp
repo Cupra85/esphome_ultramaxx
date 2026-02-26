@@ -11,7 +11,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.3";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.5";
 
 // --------------------------------------------------------------------------------------
 // Hinweis:
@@ -46,7 +46,7 @@ static bool g_got_tret = false;
 static bool g_got_tdiff = false;
 static bool g_got_time = false;
 static bool g_got_operating = false;
-static bool g_got_access_counter = false;
+static bool g_got_access_counter = false
 static bool g_got_status = false;
 
 // --------------------------------------------------------------------------------------
@@ -168,130 +168,194 @@ void UltraMaXXComponent::reset_parse_flags_() {
 
 void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
   const size_t n = buf.size();
-  if (n < 10) return;
+  if (n < 20) return;
 
-  // ---------- Fixed Data Header Felder (Byte-Pos 15/16) ----------
-  // 15 = Zugriffszähler
-  // 16 = Status
+  // ---------------- FIXED DATA HEADER ----------------
   if (n > 16) {
     if (!g_got_access_counter) {
-      const uint8_t access = buf[15];
+      uint8_t access = buf[15];
       g_got_access_counter = true;
-      ESP_LOGI(TAG, "ACCESS COUNTER parsed: %u", (unsigned) access);
-      if (access_counter_) access_counter_->publish_state((float) access);
+      ESP_LOGI(TAG, "ACCESS COUNTER parsed: %u", (unsigned)access);
+      if (access_counter_) access_counter_->publish_state((float)access);
     }
 
     if (!g_got_status) {
-      const uint8_t status = buf[16];
+      uint8_t status = buf[16];
       g_got_status = true;
-      const std::string st = decode_status_text_(status);
+      std::string st = decode_status_text_(status);
       ESP_LOGI(TAG, "STATUS parsed: %s", st.c_str());
       if (status_text_) status_text_->publish_state(st);
     }
   }
 
-  // ---------- Variable Data Blocks (Marker-Scan) ----------
-  for (size_t i = 0; i + 2 < n; i++) {
-    // SERIAL: 0x0C 0x78 + 4B BCD
-    if (!g_got_serial && i + 6 <= n && buf[i] == 0x0C && buf[i + 1] == 0x78) {
-      float sn = decode_bcd_(buf, i + 2, 4);
-      g_got_serial = true;
-      ESP_LOGI(TAG, "SERIAL parsed: %.0f", sn);
-      if (serial_number_) serial_number_->publish_state(sn);
-    }
+  // ---------------- VARIABLE DATA RECORDS ----------------
+  size_t i = 19;                // nach Fixed Header
+  const size_t end = n - 2;     // ohne CS + 0x16
 
-    // ENERGY: 0x04 0x06 + 4B little endian (kWh)
-    if (!g_got_energy && i + 6 <= n && buf[i] == 0x04 && buf[i + 1] == 0x06) {
-      uint32_t raw = decode_u_le_(buf, i + 2, 4);
-      float kwh = (float) raw;
-      g_got_energy = true;
-      ESP_LOGI(TAG, "ENERGY parsed: %.0f kWh (raw=%u)", kwh, (unsigned) raw);
-      if (total_energy_) total_energy_->publish_state(kwh);
-    }
+  while (i < end) {
 
-    // VOLUME: 0x0C 0x14 + 4B BCD (x0.01 m³)
-    if (!g_got_volume && i + 6 <= n && buf[i] == 0x0C && buf[i + 1] == 0x14) {
-      float v = decode_bcd_(buf, i + 2, 4) * 0.01f;
-      g_got_volume = true;
-      ESP_LOGI(TAG, "VOLUME parsed: %.2f m³", v);
-      if (total_volume_) total_volume_->publish_state(v);
-    }
+    uint8_t dif = buf[i++];
+    if (dif == 0x2F) continue;   // filler
 
-    // FLOW TEMP: 0x0A 0x5A + 2B BCD (x0.1 °C)
-    if (!g_got_tflow && i + 4 <= n && buf[i] == 0x0A && buf[i + 1] == 0x5A) {
-      float t = decode_bcd_(buf, i + 2, 2) * 0.1f;
-      g_got_tflow = true;
-      ESP_LOGI(TAG, "FLOW TEMP parsed: %.1f °C", t);
-      if (temp_flow_) temp_flow_->publish_state(t);
-    }
+    bool dif_ext   = dif & 0x80;
+    bool dif_error = dif & 0x40;
+    uint8_t dif_len_code = dif & 0x0F;
 
-    // RETURN TEMP: 0x0A 0x5E + 2B BCD (x0.1 °C)
-    if (!g_got_tret && i + 4 <= n && buf[i] == 0x0A && buf[i + 1] == 0x5E) {
-      float t = decode_bcd_(buf, i + 2, 2) * 0.1f;
-      g_got_tret = true;
-      ESP_LOGI(TAG, "RETURN TEMP parsed: %.1f °C", t);
-      if (temp_return_) temp_return_->publish_state(t);
-    }
-
-    // DELTA T: 0x0B 0x61 + 3B BCD (x0.01 K)
-    if (!g_got_tdiff && i + 5 <= n && buf[i] == 0x0B && buf[i + 1] == 0x61) {
-      float dt = decode_bcd_(buf, i + 2, 3) * 0.01f;
-      g_got_tdiff = true;
-      ESP_LOGI(TAG, "DELTA T parsed: %.2f K", dt);
-      if (temp_diff_) temp_diff_->publish_state(dt);
-    }
-
-    // TIME: 0x04 0x6D + 4B CP32
-    if (!g_got_time && i + 6 <= n && buf[i] == 0x04 && buf[i + 1] == 0x6D) {
-      std::string ts;
-      if (decode_cp32_datetime_(buf, i + 2, ts)) {
-        g_got_time = true;
-        ESP_LOGI(TAG, "TIME parsed: %s", ts.c_str());
-        if (meter_time_) meter_time_->publish_state(ts);
+    // Skip DIFE
+    if (dif_ext) {
+      while (i < end) {
+        uint8_t dife = buf[i++];
+        if (!(dife & 0x80)) break;
       }
     }
 
-    // OPERATING TIME: 0x02 0x27 + 2B LE (days)
-    if (!g_got_operating && i + 4 <= n && buf[i] == 0x02 && buf[i + 1] == 0x27) {
-      uint32_t days = decode_u_le_(buf, i + 2, 2);
-      g_got_operating = true;
-      ESP_LOGI(TAG, "OPERATING TIME parsed: %u days", (unsigned) days);
-      if (operating_time_) operating_time_->publish_state((float) days);
+    if (i >= end) break;
+
+    uint8_t vif = buf[i++];
+    bool vif_ext = vif & 0x80;
+    uint8_t vif_base = vif & 0x7F;
+
+    // Skip VIFE
+    if (vif_ext) {
+      while (i < end) {
+        uint8_t vife = buf[i++];
+        if (!(vife & 0x80)) break;
+      }
     }
 
-    // POWER: 0x0B 0x2D/0x2E + 3B BCD (x0.1 kW)  (Annahme wie bisher)
-    if (!got_power_ && i + 5 <= n && buf[i] == 0x0B && (buf[i + 1] == 0x2D || buf[i + 1] == 0x2E)) {
-      float p = decode_bcd_(buf, i + 2, 3) * 0.1f;
+    // Datenlänge laut DIF bestimmen
+    size_t dlen = 0;
+    switch (dif_len_code) {
+      case 0x00: dlen = 0; break;
+      case 0x01: dlen = 1; break;
+      case 0x02: dlen = 2; break;
+      case 0x03: dlen = 3; break;
+      case 0x04: dlen = 4; break;        // 4B Integer
+      case 0x0A: dlen = 2; break;        // 2B BCD
+      case 0x0B: dlen = 3; break;        // 3B BCD
+      case 0x0C: dlen = 4; break;        // 4B BCD
+      default: return;                   // unbekannt -> Abbruch (verhindert Desync)
+    }
+
+    if (i + dlen > end) break;
+
+    // ============================================================
+    // SERIAL NUMBER (BCD 4B, VIF 0x78)
+    // ============================================================
+    if (!g_got_serial && dif_len_code == 0x0C && vif_base == 0x78) {
+      if (!dif_error) {
+        float sn = decode_bcd_(buf, i, 4);
+        ESP_LOGI(TAG, "SERIAL parsed: %.0f", sn);
+        if (serial_number_) serial_number_->publish_state(sn);
+      }
+      g_got_serial = true;
+    }
+
+    // ============================================================
+    // ENERGY (4B LE, VIF 0x06, kWh)
+    // ============================================================
+    if (!g_got_energy && dif_len_code == 0x04 && vif_base == 0x06) {
+      if (!dif_error) {
+        uint32_t raw = decode_u_le_(buf, i, 4);
+        if (raw < 100000000UL) {
+          float kwh = (float)raw;
+          ESP_LOGI(TAG, "ENERGY parsed: %.0f kWh (raw=%u)", kwh, (unsigned)raw);
+          if (total_energy_) total_energy_->publish_state(kwh);
+        }
+      }
+      g_got_energy = true;
+    }
+
+    // ============================================================
+    // VOLUME (4B BCD, VIF 0x14, 0.01 m³)
+    // ============================================================
+    if (!g_got_volume && dif_len_code == 0x0C && vif_base == 0x14) {
+      if (!dif_error) {
+        float v = decode_bcd_(buf, i, 4) * 0.01f;
+        if (v < 1000000.0f) {
+          ESP_LOGI(TAG, "VOLUME parsed: %.2f m³", v);
+          if (total_volume_) total_volume_->publish_state(v);
+        }
+      }
+      g_got_volume = true;
+    }
+
+    // ============================================================
+    // FLOW TEMP (2B BCD, VIF 0x5A, 0.1°C)
+    // ============================================================
+    if (!g_got_tflow && dif_len_code == 0x0A && vif_base == 0x5A) {
+      if (!dif_error) {
+        float t = decode_bcd_(buf, i, 2) * 0.1f;
+        ESP_LOGI(TAG, "FLOW TEMP parsed: %.1f °C", t);
+        if (temp_flow_) temp_flow_->publish_state(t);
+      }
+      g_got_tflow = true;
+    }
+
+    // RETURN TEMP (2B BCD, VIF 0x5E)
+    if (!g_got_tret && dif_len_code == 0x0A && vif_base == 0x5E) {
+      if (!dif_error) {
+        float t = decode_bcd_(buf, i, 2) * 0.1f;
+        ESP_LOGI(TAG, "RETURN TEMP parsed: %.1f °C", t);
+        if (temp_return_) temp_return_->publish_state(t);
+      }
+      g_got_tret = true;
+    }
+
+    // DELTA T (3B BCD, VIF 0x61, 0.01 K)
+    if (!g_got_tdiff && dif_len_code == 0x0B && vif_base == 0x61) {
+      if (!dif_error) {
+        float dt = decode_bcd_(buf, i, 3) * 0.01f;
+        ESP_LOGI(TAG, "DELTA T parsed: %.2f K", dt);
+        if (temp_diff_) temp_diff_->publish_state(dt);
+      }
+      g_got_tdiff = true;
+    }
+
+    // CURRENT POWER (3B BCD, VIF 0x2D / 0x2E)
+    if (!got_power_ && dif_len_code == 0x0B &&
+        (vif_base == 0x2D || vif_base == 0x2E)) {
+      if (!dif_error) {
+        float p = decode_bcd_(buf, i, 3) * 0.1f;
+        ESP_LOGI(TAG, "POWER parsed: %.1f kW", p);
+        if (current_power_) current_power_->publish_state(p);
+      }
       got_power_ = true;
-      ESP_LOGI(TAG, "POWER parsed: %.1f kW", p);
-      if (current_power_) current_power_->publish_state(p);
     }
 
-    // FLOW: 0x0B 0x3B + 3B BCD (l/h)  (Annahme wie bisher)
-    if (!got_flow_ && i + 5 <= n && buf[i] == 0x0B && buf[i + 1] == 0x3B) {
-      float f = decode_bcd_(buf, i + 2, 3);
+    // FLOW (3B BCD, VIF 0x3B)
+    if (!got_flow_ && dif_len_code == 0x0B && vif_base == 0x3B) {
+      if (!dif_error) {
+        float f = decode_bcd_(buf, i, 3);
+        ESP_LOGI(TAG, "FLOW parsed: %.0f l/h", f);
+        if (flow_) flow_->publish_state(f);
+      }
       got_flow_ = true;
-      ESP_LOGI(TAG, "FLOW parsed: %.0f l/h", f);
-      if (flow_) flow_->publish_state(f);
     }
 
-    // FIRMWARE: 0x09 0xFD 0x0E + 1B (hier als unsigned int -> float)
-    if (!got_fw_ && i + 4 <= n && buf[i] == 0x09 && buf[i + 1] == 0xFD && buf[i + 2] == 0x0E) {
-      uint8_t fw_raw = buf[i + 3];
-      float fw = (float) fw_raw;
-      got_fw_ = true;
-      ESP_LOGI(TAG, "FIRMWARE VERSION parsed: %.0f", fw);
-      if (firmware_version_) firmware_version_->publish_state(fw);
+    // OPERATING TIME (2B LE, VIF 0x27)
+    if (!g_got_operating && dif_len_code == 0x02 && vif_base == 0x27) {
+      if (!dif_error) {
+        uint32_t days = decode_u_le_(buf, i, 2);
+        ESP_LOGI(TAG, "OPERATING TIME parsed: %u days", (unsigned)days);
+        if (operating_time_) operating_time_->publish_state((float)days);
+      }
+      g_got_operating = true;
     }
 
-    // SOFTWARE: 0x09 0xFD 0x0F + 1B (hier als unsigned int -> float)
-    if (!got_sw_ && i + 4 <= n && buf[i] == 0x09 && buf[i + 1] == 0xFD && buf[i + 2] == 0x0F) {
-      uint8_t sw_raw = buf[i + 3];
-      float sw = (float) sw_raw;
-      got_sw_ = true;
-      ESP_LOGI(TAG, "SOFTWARE VERSION parsed: %.0f", sw);
-      if (software_version_) software_version_->publish_state(sw);
+    // METER TIME (4B CP32, VIF 0x6D)
+    if (!g_got_time && dif_len_code == 0x04 && vif_base == 0x6D) {
+      if (!dif_error) {
+        std::string ts;
+        if (decode_cp32_datetime_(buf, i, ts)) {
+          ESP_LOGI(TAG, "TIME parsed: %s", ts.c_str());
+          if (meter_time_) meter_time_->publish_state(ts);
+        }
+      }
+      g_got_time = true;
     }
+
+    i += dlen;
   }
 }
 
