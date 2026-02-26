@@ -11,7 +11,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.6";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.7";
 
 // --------------------------------------------------------------------------------------
 // Hinweis:
@@ -393,7 +393,20 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
       }
       g_got_time = true;
     }
+    // Prüfen ob Datenwert 99 99 ... ist
+    bool invalid_99 = false;
+    if (dlen >= 2 && i + dlen <= end) {
+      invalid_99 = true;
+      for (size_t k = 0; k < dlen; k++) {
+        if (buf[i + k] != 0x99) {
+          invalid_99 = false;
+          break;
+        }
+      }
+    }
 
+// finaler Invalid-Status
+bool invalid_value = dif_error || invalid_99;
     i += dlen;
   }
 }
