@@ -11,7 +11,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.7";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.8";
 
 // --------------------------------------------------------------------------------------
 // Hinweis:
@@ -189,13 +189,13 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
   }
 
   // ---------------- VARIABLE DATA RECORDS ----------------
-  size_t i = 19;                // nach Fixed Header
-  const size_t end = n - 2;     // ohne CS + 0x16
+  size_t i = 19;              // Start nach Fixed Header
+  const size_t end = n - 2;   // ohne CS + 0x16
 
   while (i < end) {
 
     uint8_t dif = buf[i++];
-    if (dif == 0x2F) continue;   // filler
+    if (dif == 0x2F) continue;  // filler
 
     bool dif_ext   = dif & 0x80;
     bool dif_error = dif & 0x40;
@@ -226,176 +226,21 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     // Datenlänge laut DIF bestimmen
     size_t dlen = 0;
     switch (dif_len_code) {
-      case 0x00: dlen = 0; break;
       case 0x01: dlen = 1; break;
       case 0x02: dlen = 2; break;
       case 0x03: dlen = 3; break;
-      case 0x04: dlen = 4; break;        // 4B Integer
-      case 0x0A: dlen = 2; break;        // 2B BCD
-      case 0x0B: dlen = 3; break;        // 3B BCD
-      case 0x0C: dlen = 4; break;        // 4B BCD
-      default: return;                   // unbekannt -> Abbruch (verhindert Desync)
+      case 0x04: dlen = 4; break;
+      case 0x0A: dlen = 2; break;
+      case 0x0B: dlen = 3; break;
+      case 0x0C: dlen = 4; break;
+      default: return;  // verhindert Desync
     }
 
     if (i + dlen > end) break;
 
-    // ============================================================
-    // SERIAL NUMBER (BCD 4B, VIF 0x78)
-    // ============================================================
-    if (!g_got_serial && dif_len_code == 0x0C && vif_base == 0x78) {
-      if (invalid_value) {
-        ESP_LOGW(TAG, "SERIAL invalid -> unknown");
-        if (serial_number_) serial_number_->publish_state(NAN);
-      } else {
-        float sn = decode_bcd_(buf, i, 4);
-        ESP_LOGI(TAG, "SERIAL parsed: %.0f", sn);
-        if (serial_number_) serial_number_->publish_state(sn);
-      }
-      g_got_serial = true;
-    }
-
-    // ============================================================
-    // ENERGY (4B LE, VIF 0x06, kWh)
-    // ============================================================
-    if (!g_got_energy && dif_len_code == 0x04 && vif_base == 0x06) {
-      if (invalid_value) {
-        ESP_LOGW(TAG, "ENERGY invalid -> unknown");
-        if (total_energy_) total_energy_->publish_state(NAN);
-      } else {
-        uint32_t raw = decode_u_le_(buf, i, 4);
-        float kwh = (float) raw;
-        ESP_LOGI(TAG, "ENERGY parsed: %.0f kWh (raw=%u)", kwh, (unsigned) raw);
-        if (total_energy_) total_energy_->publish_state(kwh);
-      }
-      g_got_energy = true;
-    }
-
-    // ============================================================
-    // VOLUME (4B BCD, VIF 0x14, 0.01 m³)
-    // ============================================================
-    if (!g_got_volume && dif_len_code == 0x0C && vif_base == 0x14) {
-      if (invalid_value) {
-        ESP_LOGW(TAG, "VOLUME invalid -> unknown");
-        if (total_volume_) total_volume_->publish_state(NAN);
-      } else {
-        float v = decode_bcd_(buf, i, 4) * 0.01f;
-        ESP_LOGI(TAG, "VOLUME parsed: %.2f m³", v);
-        if (total_volume_) total_volume_->publish_state(v);
-      }
-      g_got_volume = true;
-    }
-
-    // ============================================================
-    // FLOW TEMP (2B BCD, VIF 0x5A, 0.1°C)
-    // ============================================================
-    if (!g_got_tflow && dif_len_code == 0x0A && vif_base == 0x5A) {
-      if (invalid_value) {
-        ESP_LOGW(TAG, "FLOW TEMP invalid -> unknown");
-        if (temp_flow_) temp_flow_->publish_state(NAN);
-      } else {
-        float t = decode_bcd_(buf, i, 2) * 0.1f;
-        ESP_LOGI(TAG, "FLOW TEMP parsed: %.1f °C", t);
-      if (temp_flow_) temp_flow_->publish_state(t);
-      }
-      g_got_tflow = true;
-    }
-
-    // ============================================================
-    // RETURN TEMP (2B BCD, VIF 0x5E)
-    // ============================================================
-    if (!g_got_tret && dif_len_code == 0x0A && vif_base == 0x5E) {
-      if (invalid_value) {
-        ESP_LOGW(TAG, "RETURN TEMP invalid -> unknown");
-        if (temp_return_) temp_return_->publish_state(NAN);
-      } else {
-        float t = decode_bcd_(buf, i, 2) * 0.1f;
-        ESP_LOGI(TAG, "RETURN TEMP parsed: %.1f °C", t);
-        if (temp_return_) temp_return_->publish_state(t);
-      }
-      g_got_tret = true;
-    }
-
-    // ============================================================
-    // DELTA T (3B BCD, VIF 0x61, 0.01 K)
-    // ============================================================
-    if (!g_got_tdiff && dif_len_code == 0x0B && vif_base == 0x61) {
-      if (invalid_value) {
-        ESP_LOGW(TAG, "DELTA T invalid -> unknown");
-        if (temp_diff_) temp_diff_->publish_state(NAN);
-      } else {
-        float dt = decode_bcd_(buf, i, 3) * 0.01f;
-        ESP_LOGI(TAG, "DELTA T parsed: %.2f K", dt);
-        if (temp_diff_) temp_diff_->publish_state(dt);
-      }
-      g_got_tdiff = true;
-    }
-
-    // ============================================================
-    // CURRENT POWER (3B BCD, VIF 0x2D / 0x2E)
-    // ============================================================
-    if (!got_power_ && dif_len_code == 0x0B && (vif_base == 0x2D || vif_base == 0x2E)) {
-      if (invalid_value) {
-        ESP_LOGW(TAG, "POWER invalid -> unknown");
-        if (current_power_) current_power_->publish_state(NAN);
-      } else {
-        float p = decode_bcd_(buf, i, 3) * 0.1f;
-        ESP_LOGI(TAG, "POWER parsed: %.1f kW", p);
-        if (current_power_) current_power_->publish_state(p);
-      }
-      got_power_ = true;
-    }
-
-    // ============================================================
-    // FLOW (3B BCD, VIF 0x3B)
-    // ============================================================
-    if (!got_flow_ && dif_len_code == 0x0B && vif_base == 0x3B) {
-      if (invalid_value) {
-        ESP_LOGW(TAG, "FLOW invalid -> unknown");
-        if (flow_) flow_->publish_state(NAN);
-      } else {
-        float f = decode_bcd_(buf, i, 3);
-        ESP_LOGI(TAG, "FLOW parsed: %.0f l/h", f);
-        if (flow_) flow_->publish_state(f);
-      }
-      got_flow_ = true;
-    }
-
-    // ============================================================
-    // OPERATING TIME (2B LE, VIF 0x27)
-    // ============================================================
-    if (!g_got_operating && dif_len_code == 0x02 && vif_base == 0x27) {
-      if (invalid_value) {
-        ESP_LOGW(TAG, "OPERATING TIME invalid -> unknown");
-        if (operating_time_) operating_time_->publish_state(NAN);
-      } else {
-        uint32_t days = decode_u_le_(buf, i, 2);
-        ESP_LOGI(TAG, "OPERATING TIME parsed: %u days", (unsigned) days);
-        if (operating_time_) operating_time_->publish_state((float) days);
-      }
-      g_got_operating = true;
-    }
-
-    // ============================================================
-    // METER TIME (4B CP32, VIF 0x6D)
-    // ============================================================
-    if (!g_got_time && dif_len_code == 0x04 && vif_base == 0x6D) {
-      if (dif_error) {
-        ESP_LOGW(TAG, "TIME invalid -> unknown");
-        if (meter_time_) meter_time_->publish_state("unknown");
-      } else {
-        std::string ts;
-        if (decode_cp32_datetime_(buf, i, ts)) {
-          ESP_LOGI(TAG, "TIME parsed: %s", ts.c_str());
-          if (meter_time_) meter_time_->publish_state(ts);
-        } else {
-          if (meter_time_) meter_time_->publish_state("unknown");
-        }
-      }
-      g_got_time = true;
-    }
-    // Prüfen ob Datenwert 99 99 ... ist
+    // ---------------- INVALID CHECK ----------------
     bool invalid_99 = false;
-    if (dlen >= 2 && i + dlen <= end) {
+    if (dlen >= 2) {
       invalid_99 = true;
       for (size_t k = 0; k < dlen; k++) {
         if (buf[i + k] != 0x99) {
@@ -405,8 +250,123 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
       }
     }
 
-// finaler Invalid-Status
-bool invalid_value = dif_error || invalid_99;
+    bool invalid_value = dif_error || invalid_99;
+
+    // ================= SERIAL =================
+    if (!g_got_serial && dif_len_code == 0x0C && vif_base == 0x78) {
+      if (invalid_value) {
+        if (serial_number_) serial_number_->publish_state(NAN);
+      } else {
+        float sn = decode_bcd_(buf, i, 4);
+        if (serial_number_) serial_number_->publish_state(sn);
+      }
+      g_got_serial = true;
+    }
+
+    // ================= ENERGY =================
+    if (!g_got_energy && dif_len_code == 0x04 && vif_base == 0x06) {
+      if (invalid_value) {
+        if (total_energy_) total_energy_->publish_state(NAN);
+      } else {
+        uint32_t raw = decode_u_le_(buf, i, 4);
+        if (total_energy_) total_energy_->publish_state((float)raw);
+      }
+      g_got_energy = true;
+    }
+
+    // ================= VOLUME =================
+    if (!g_got_volume && dif_len_code == 0x0C && vif_base == 0x14) {
+      if (invalid_value) {
+        if (total_volume_) total_volume_->publish_state(NAN);
+      } else {
+        float v = decode_bcd_(buf, i, 4) * 0.01f;
+        if (total_volume_) total_volume_->publish_state(v);
+      }
+      g_got_volume = true;
+    }
+
+    // ================= FLOW TEMP =================
+    if (!g_got_tflow && dif_len_code == 0x0A && vif_base == 0x5A) {
+      if (invalid_value) {
+        if (temp_flow_) temp_flow_->publish_state(NAN);
+      } else {
+        float t = decode_bcd_(buf, i, 2) * 0.1f;
+        if (temp_flow_) temp_flow_->publish_state(t);
+      }
+      g_got_tflow = true;
+    }
+
+    // ================= RETURN TEMP =================
+    if (!g_got_tret && dif_len_code == 0x0A && vif_base == 0x5E) {
+      if (invalid_value) {
+        if (temp_return_) temp_return_->publish_state(NAN);
+      } else {
+        float t = decode_bcd_(buf, i, 2) * 0.1f;
+        if (temp_return_) temp_return_->publish_state(t);
+      }
+      g_got_tret = true;
+    }
+
+    // ================= DELTA T =================
+    if (!g_got_tdiff && dif_len_code == 0x0B && vif_base == 0x61) {
+      if (invalid_value) {
+        if (temp_diff_) temp_diff_->publish_state(NAN);
+      } else {
+        float dt = decode_bcd_(buf, i, 3) * 0.01f;
+        if (temp_diff_) temp_diff_->publish_state(dt);
+      }
+      g_got_tdiff = true;
+    }
+
+    // ================= POWER =================
+    if (!got_power_ && dif_len_code == 0x0B &&
+        (vif_base == 0x2D || vif_base == 0x2E)) {
+      if (invalid_value) {
+        if (current_power_) current_power_->publish_state(NAN);
+      } else {
+        float p = decode_bcd_(buf, i, 3) * 0.1f;
+        if (current_power_) current_power_->publish_state(p);
+      }
+      got_power_ = true;
+    }
+
+    // ================= FLOW =================
+    if (!got_flow_ && dif_len_code == 0x0B && vif_base == 0x3B) {
+      if (invalid_value) {
+        if (flow_) flow_->publish_state(NAN);
+      } else {
+        float f = decode_bcd_(buf, i, 3);
+        if (flow_) flow_->publish_state(f);
+      }
+      got_flow_ = true;
+    }
+
+    // ================= OPERATING TIME =================
+    if (!g_got_operating && dif_len_code == 0x02 && vif_base == 0x27) {
+      if (invalid_value) {
+        if (operating_time_) operating_time_->publish_state(NAN);
+      } else {
+        uint32_t days = decode_u_le_(buf, i, 2);
+        if (operating_time_) operating_time_->publish_state((float)days);
+      }
+      g_got_operating = true;
+    }
+
+    // ================= METER TIME =================
+    if (!g_got_time && dif_len_code == 0x04 && vif_base == 0x6D) {
+      if (dif_error) {
+        if (meter_time_) meter_time_->publish_state("unknown");
+      } else {
+        std::string ts;
+        if (decode_cp32_datetime_(buf, i, ts)) {
+          if (meter_time_) meter_time_->publish_state(ts);
+        } else {
+          if (meter_time_) meter_time_->publish_state("unknown");
+        }
+      }
+      g_got_time = true;
+    }
+
     i += dlen;
   }
 }
