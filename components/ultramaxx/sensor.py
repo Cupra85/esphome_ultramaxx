@@ -42,7 +42,7 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_TEMP_DIFF): sensor.sensor_schema(unit_of_measurement="°C", icon="mdi:thermometer-lines"),
             cv.Optional(CONF_OPERATING_TIME): sensor.sensor_schema(unit_of_measurement="days", icon="mdi:calendar-start"),
             cv.Optional(CONF_FIRMWARE_VERSION): sensor.sensor_schema(icon="mdi:chip"),
-            cv.Optional(CONF_SOFTWARE_VERSION): sensor.sensor_schema(icon="mdi:chip-outline"),
+            cv.Optional(CONF_SOFTWARE_VERSION): sensor.sensor_schema(icon="mdi:chip"),
             cv.Optional(CONF_ACCESS_COUNTER): sensor.sensor_schema(icon="mdi:timer-check"),
             cv.Optional(CONF_STATUS_TEXT): text_sensor.text_sensor_schema(icon="mdi:alert"),
             cv.Optional(CONF_METER_TIME): text_sensor.text_sensor_schema(icon="mdi:timer-cog"),
