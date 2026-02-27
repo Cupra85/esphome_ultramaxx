@@ -11,7 +11,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.10";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.11";
 
 // --------------------------------------------------------------------------------------
 // Hinweis:
@@ -323,7 +323,7 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
         if (temp_diff_) temp_diff_->publish_state(NAN);
       } else {
         float dt = decode_bcd_(buf, i, 3) * 0.01f;
-        ESP_LOGI(TAG, "DELTA T parsed: %.2f K", dt);
+        ESP_LOGI(TAG, "DELTA T parsed: %.2f °C", dt);
         if (temp_diff_) temp_diff_->publish_state(dt);
       }
       g_got_tdiff = true;
