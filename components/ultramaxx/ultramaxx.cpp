@@ -36,6 +36,7 @@ static uint32_t g_state_ts = 0;
 
 // M-Bus FCB toggle for REQ_UD2
 static bool g_fcb_toggle = false;
+static bool g_error_frame_selected = false;
 
 // Parse-once flags (pro update() Reset)
 static bool g_got_serial = false;
