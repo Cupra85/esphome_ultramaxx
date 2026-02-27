@@ -11,7 +11,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v8.11";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v9.0";
 
 // --------------------------------------------------------------------------------------
 // Hinweis:
@@ -571,22 +571,59 @@ void UltraMaXXComponent::loop() {
     return;
   }
 
-  if (g_state == UM_SEND && now - g_state_ts > 150) {
-    // REQ_UD2 with FCB toggle
-    const uint8_t ctrl = g_fcb_toggle ? 0x7B : 0x5B;
-    const uint8_t cs = (uint8_t) ((ctrl + 0xFE) & 0xFF);
-    const uint8_t req[] = {0x10, ctrl, 0xFE, cs, 0x16};
+if (g_state == UM_SEND && now - g_state_ts > 150) {
 
-    this->write_array(req, sizeof(req));
+  // -------------------------------------------------
+  // 1️⃣ EINMALIG Fehlerzeit-Frame (01h) selektieren
+  // -------------------------------------------------
+  if (!g_error_frame_selected) {
+
+    const uint8_t addr = 0xFE;   // falls nötig anpassen
+    const uint8_t cfield = 0x53; // SND_UD
+    const uint8_t ci = 0x50;     // Application reset
+    const uint8_t sub = 0x01;    // Fehlerzeit Modus
+
+    uint8_t cs = (uint8_t)((cfield + addr + ci + sub) & 0xFF);
+
+    const uint8_t frame_sel[] = {
+      0x68, 0x04, 0x04, 0x68,
+      cfield,
+      addr,
+      ci,
+      sub,
+      cs,
+      0x16
+    };
+
+    this->write_array(frame_sel, sizeof(frame_sel));
     this->flush();
-    ESP_LOGI(TAG, "REQ_UD2 sent");
 
-    g_fcb_toggle = !g_fcb_toggle;
+    ESP_LOGI(TAG, "Frame switched to Fehlerzeit (01h)");
 
-    g_state = UM_RX;
-    g_last_rx_ms = now;
+    g_error_frame_selected = true;
+    g_state_ts = now;
     return;
   }
+
+  // -------------------------------------------------
+  // 2️⃣ Danach normal REQ_UD2 senden
+  // -------------------------------------------------
+
+  const uint8_t ctrl = g_fcb_toggle ? 0x7B : 0x5B;
+  const uint8_t cs = (uint8_t)((ctrl + 0xFE) & 0xFF);
+  const uint8_t req[] = {0x10, ctrl, 0xFE, cs, 0x16};
+
+  this->write_array(req, sizeof(req));
+  this->flush();
+
+  ESP_LOGI(TAG, "REQ_UD2 sent (Fehlerzeit)");
+
+  g_fcb_toggle = !g_fcb_toggle;
+
+  g_state = UM_RX;
+  g_last_rx_ms = now;
+  return;
+}
 }
 
 }  // namespace ultramaxx
