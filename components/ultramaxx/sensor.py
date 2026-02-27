@@ -32,93 +32,78 @@ CONFIG_SCHEMA = (
             cv.GenerateID(): cv.declare_id(UltraMaXXComponent),
             cv.Required(CONF_UART_ID): cv.use_id(uart.UARTComponent),
 
-            cv.Optional(CONF_SERIAL_NUMBER):
-                sensor.sensor_schema(
+            cv.Optional(CONF_SERIAL_NUMBER):sensor.sensor_schema(
                     accuracy_decimals=0,
                     icon="mdi:barcode-scan",
                 ),
 
-            cv.Optional(CONF_TOTAL_ENERGY):
-                sensor.sensor_schema(
+            cv.Optional(CONF_TOTAL_ENERGY):sensor.sensor_schema(
                     unit_of_measurement="kWh",
                     accuracy_decimals=0,
                     icon="mdi:transmission-tower",
                 ),
 
-            cv.Optional(CONF_TOTAL_VOLUME):
-                sensor.sensor_schema(
+            cv.Optional(CONF_TOTAL_VOLUME):sensor.sensor_schema(
                     unit_of_measurement="m³",
                     accuracy_decimals=2,
                     icon="mdi:water",
                 ),
 
-            cv.Optional(CONF_POWER):
-                sensor.sensor_schema(
+            cv.Optional(CONF_POWER):sensor.sensor_schema(
                     unit_of_measurement="kW",
                     accuracy_decimals=1,
                     icon="mdi:flash",
                 ),
 
-            cv.Optional(CONF_FLOW):
-                sensor.sensor_schema(
+            cv.Optional(CONF_FLOW):sensor.sensor_schema(
                     unit_of_measurement="l/h",
                     accuracy_decimals=0,
                     icon="mdi:pipe",
                 ),
 
-            cv.Optional(CONF_TEMP_FLOW):
-                sensor.sensor_schema(
+            cv.Optional(CONF_TEMP_FLOW):sensor.sensor_schema(
                     unit_of_measurement="°C",
                     accuracy_decimals=1,
                     icon="mdi:thermometer-plus",
-                ),
-
-            cv.Optional(CONF_TEMP_RETURN):
-                sensor.sensor_schema(
+                
+            cv.Optional(CONF_TEMP_RETURN):sensor.sensor_schema(
                     unit_of_measurement="°C",
                     accuracy_decimals=1,
                     icon="mdi:thermometer-minus",
                 ),
 
-            cv.Optional(CONF_TEMP_DIFF):
-                sensor.sensor_schema(
+            cv.Optional(CONF_TEMP_DIFF):sensor.sensor_schema(
                     unit_of_measurement="°C",
                     accuracy_decimals=2,
                     icon="mdi:thermometer-lines",
                 ),
 
-            cv.Optional(CONF_OPERATING_TIME):
-                sensor.sensor_schema(
+            cv.Optional(CONF_OPERATING_TIME):sensor.sensor_schema(
                     unit_of_measurement="days",
                     accuracy_decimals=0,
                     icon="mdi:calendar-start",
                 ),
 
-            cv.Optional(CONF_FIRMWARE_VERSION):
-                sensor.sensor_schema(
+            cv.Optional(CONF_FIRMWARE_VERSION):sensor.sensor_schema(
                     accuracy_decimals=0,
                     icon="mdi:chip",
                 ),
 
-            cv.Optional(CONF_SOFTWARE_VERSION):
-                sensor.sensor_schema(
+            cv.Optional(CONF_SOFTWARE_VERSION):sensor.sensor_schema(
                     accuracy_decimals=0,
                     icon="mdi:chip",
                 ),
 
-            cv.Optional(CONF_ACCESS_COUNTER):
-                sensor.sensor_schema(
+            cv.Optional(CONF_ACCESS_COUNTER):sensor.sensor_schema(
                     accuracy_decimals=0,
                     icon="mdi:timer-check",
                 ),
 
-            cv.Optional(CONF_STATUS_TEXT):
-                text_sensor.text_sensor_schema(
+            cv.Optional(CONF_STATUS_TEXT):text_sensor.text_sensor_schema(
                     icon="mdi:alert",
                 ),
 
-            cv.Optional(CONF_METER_TIME):
-                text_sensor.text_sensor_schema(
+            cv.Optional(CONF_METER_TIME):text_sensor.text_sensor_schema(
                     icon="mdi:timer-cog",
                 ),
         }
