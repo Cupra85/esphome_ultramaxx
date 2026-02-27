@@ -11,7 +11,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v9.3";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v9.4";
 
 // --------------------------------------------------------------------------------------
 // Hinweis:
@@ -387,39 +387,42 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
       g_got_time = true;
     }
 
-    // ================= FIRMWARE VERSION =================
-    if (!got_fw_ && dif_len_code == 0x01 && vif == 0xFD) {
-      uint8_t vife = buf[i - 1];  // letztes gelesenes VIFE
+    // ================= FIRMWARE/SOFTWARE VERSION =================
+if (dif == 0x09 && vif == 0xFD) {
 
-      if (vife == 0x0E) {
-        if (invalid_value) {
-          ESP_LOGI(TAG, "FIRMWARE VERSION parsed: unknown");
-          if (firmware_version_) firmware_version_->publish_state(NAN);
-        } else {
-          uint8_t fw = buf[i];
-          ESP_LOGI(TAG, "FIRMWARE VERSION parsed: %u", fw);
-          if (firmware_version_) firmware_version_->publish_state((float)fw);
-        }
-        got_fw_ = true;
-      }
+  // VIFE steht direkt vor den Datenbytes
+  uint8_t vife = buf[i - 1];
+
+  // ================= FIRMWARE VERSION =================
+  if (!got_fw_ && vife == 0x0E) {
+
+    if (invalid_value) {
+      ESP_LOGI(TAG, "FIRMWARE VERSION parsed: unknown");
+      if (firmware_version_) firmware_version_->publish_state(NAN);
+    } else {
+      float fw = decode_bcd_(buf, i, 1);
+      ESP_LOGI(TAG, "FIRMWARE VERSION parsed: %.0f", fw);
+      if (firmware_version_) firmware_version_->publish_state(fw);
     }
 
-    // ================= SOFTWARE VERSION =================
-    if (!got_sw_ && dif_len_code == 0x01 && vif == 0xFD) {
-      uint8_t vife = buf[i - 1];
+    got_fw_ = true;
+  }
 
-      if (vife == 0x0F) {
-        if (invalid_value) {
-          ESP_LOGI(TAG, "SOFTWARE VERSION parsed: unknown");
-          if (software_version_) software_version_->publish_state(NAN);
-        } else {
-          uint8_t sw = buf[i];
-          ESP_LOGI(TAG, "SOFTWARE VERSION parsed: %u", sw);
-          if (software_version_) software_version_->publish_state((float)sw);
-        }
-        got_sw_ = true;
-      }
+  // ================= SOFTWARE VERSION =================
+  if (!got_sw_ && vife == 0x0F) {
+
+    if (invalid_value) {
+      ESP_LOGI(TAG, "SOFTWARE VERSION parsed: unknown");
+      if (software_version_) software_version_->publish_state(NAN);
+    } else {
+      float sw = decode_bcd_(buf, i, 1);
+      ESP_LOGI(TAG, "SOFTWARE VERSION parsed: %.0f", sw);
+      if (software_version_) software_version_->publish_state(sw);
     }
+
+    got_sw_ = true;
+  }
+}
 
     i += dlen;
   }
