@@ -11,12 +11,12 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v9.1";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v9.3";
 
 // --------------------------------------------------------------------------------------
 // Hinweis:
 // Dein ultramaxx.h deklariert keine RX-/State-Member (rx_buffer_, in_frame_, ...).
-// Damit es OHNE Header-Änderung kompiliert, halten wir den Runtime-State hier static.
+// Damit es OHNE Header-Änderung kompiliert, halte ich den Runtime-State hier static.
 // Das setzt (wie bei den meisten Installationen) genau 1 Instanz voraus.
 // --------------------------------------------------------------------------------------
 
@@ -50,31 +50,6 @@ static bool g_got_access_counter = false;
 static bool g_got_status = false;
 static bool got_fw_ = false;
 static bool got_sw_ = false;
-
-// --------------------------------------------------------------------------------------
-// NEU: Frame-Auswahl Sequenz (Fehlerzeit -> Stichtag -> Standard)
-// --------------------------------------------------------------------------------------
-enum UMQueryStage {
-  Q_SELECT_ERROR,      // Application reset + Subcode 0x01
-  Q_REQ_ERROR,         // REQ_UD2 lesen
-  Q_SELECT_STICHTAG,   // Application reset + Subcode 0x02..0x13 (Monat -1..-18)
-  Q_REQ_STICHTAG,      // REQ_UD2 lesen
-  Q_SELECT_STANDARD,   // Application reset (Standardmodus)
-  Q_REQ_STANDARD,      // optional REQ_UD2 lesen
-  Q_DONE
-};
-
-static UMQueryStage g_qstage = Q_DONE;
-
-// Flags nur zur Info/Debug (und weil du sie schon genutzt hast)
-static bool g_error_frame_selected = false;
-static bool g_stichtag_frame_selected = false;
-
-// Stichtag: 0x02 = Monat -1, 0x03 = Monat -2, ... 0x13 = Monat -18
-static uint8_t g_stichtag_frame_no = 0x02;
-
-// feste Slave-Adresse wie bisher (0xFE in deinem Code)
-static const uint8_t UM_ADDR = 0xFE;
 
 // --------------------------------------------------------------------------------------
 // Decoder
@@ -116,6 +91,7 @@ bool UltraMaXXComponent::decode_cp32_datetime_(
 
   const uint8_t minute = (uint8_t) (b0 & 0x3F);  // 0..59
   const uint8_t hour = (uint8_t) (b1 & 0x1F);    // 0..23
+  // const bool dst = (b1 & 0x80) != 0;          // DST flag (optional)
 
   const uint8_t day = (uint8_t) (b2 & 0x1F);    // 1..31
   const uint8_t month = (uint8_t) (b3 & 0x0F);  // 1..12
@@ -136,6 +112,11 @@ bool UltraMaXXComponent::decode_cp32_datetime_(
 // --------------------------------------------------------------------------------------
 // Status Decoder (Byte-Pos 16)
 // --------------------------------------------------------------------------------------
+// Bitmask:
+// 0x00 = All OK
+// 0x04 = Low Battery
+// 0x08 = Permanent Error
+// 0x10 = Temporary Error
 std::string UltraMaXXComponent::decode_status_text_(uint8_t status) const {
   if (status == 0x00) return "All OK";
 
@@ -176,6 +157,7 @@ void UltraMaXXComponent::reset_parse_flags_() {
   g_got_access_counter = false;
   g_got_status = false;
 
+  // Diese vier Flags existieren im Header -> nutzen wir auch sauber als "parsed once"
   got_power_ = false;
   got_flow_ = false;
   got_fw_ = false;
@@ -266,6 +248,7 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
         }
       }
     }
+
     bool invalid_value = dif_error || invalid_99;
 
     // ================= SERIAL =================
@@ -347,7 +330,8 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     }
 
     // ================= POWER =================
-    if (!got_power_ && dif_len_code == 0x0B && (vif_base == 0x2D || vif_base == 0x2E)) {
+    if (!got_power_ && dif_len_code == 0x0B &&
+        (vif_base == 0x2D || vif_base == 0x2E)) {
       if (invalid_value) {
         ESP_LOGI(TAG, "POWER parsed: unknown");
         if (current_power_) current_power_->publish_state(NAN);
@@ -404,17 +388,37 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     }
 
     // ================= FIRMWARE VERSION =================
-    // In der Doku: 09 FD 0E <byte>
-    if (!got_fw_ && dif_len_code == 0x09 && vif == 0xFD) {
-      // Achtung: in deinem Parser wird VIFE aktuell "weggeskippt" und nicht gespeichert.
-      // Hier bleibt es bei deiner bisherigen Logik (falls es bei dir funktioniert).
-      // Für 100% korrekt müsste man VIFE nicht verwerfen, sondern auslesen.
+    if (!got_fw_ && dif_len_code == 0x01 && vif == 0xFD) {
+      uint8_t vife = buf[i - 1];  // letztes gelesenes VIFE
+
+      if (vife == 0x0E) {
+        if (invalid_value) {
+          ESP_LOGI(TAG, "FIRMWARE VERSION parsed: unknown");
+          if (firmware_version_) firmware_version_->publish_state(NAN);
+        } else {
+          uint8_t fw = buf[i];
+          ESP_LOGI(TAG, "FIRMWARE VERSION parsed: %u", fw);
+          if (firmware_version_) firmware_version_->publish_state((float)fw);
+        }
+        got_fw_ = true;
+      }
     }
 
     // ================= SOFTWARE VERSION =================
-    // 09 FD 0F <byte>
-    if (!got_sw_ && dif_len_code == 0x09 && vif == 0xFD) {
-      // dito (siehe Kommentar oben)
+    if (!got_sw_ && dif_len_code == 0x01 && vif == 0xFD) {
+      uint8_t vife = buf[i - 1];
+
+      if (vife == 0x0F) {
+        if (invalid_value) {
+          ESP_LOGI(TAG, "SOFTWARE VERSION parsed: unknown");
+          if (software_version_) software_version_->publish_state(NAN);
+        } else {
+          uint8_t sw = buf[i];
+          ESP_LOGI(TAG, "SOFTWARE VERSION parsed: %u", sw);
+          if (software_version_) software_version_->publish_state((float)sw);
+        }
+        got_sw_ = true;
+      }
     }
 
     i += dlen;
@@ -443,11 +447,6 @@ void UltraMaXXComponent::update() {
   g_last_rx_ms = 0;
 
   reset_parse_flags_();
-
-  // NEU: Sequenz pro Update starten
-  g_error_frame_selected = false;
-  g_stichtag_frame_selected = false;
-  g_qstage = Q_SELECT_ERROR;     // zuerst Fehlerzeit
 
   g_wake_start = millis();
   g_last_send = 0;
@@ -493,7 +492,7 @@ void UltraMaXXComponent::loop() {
     // Frame complete?
     if (g_expected_len > 0 && g_rx_buffer.size() >= g_expected_len) {
       if (g_rx_buffer.back() == 0x16) {
-        // hex dump
+        // optional: hex dump once per full frame
         std::string hex;
         char tmp[4];
         for (uint8_t b : g_rx_buffer) {
@@ -503,25 +502,6 @@ void UltraMaXXComponent::loop() {
         ESP_LOGI(TAG, "FRAME HEX: %s", hex.c_str());
 
         parse_and_publish_(g_rx_buffer);
-
-        // -------------------------------------------------
-        // NEU: Nach jedem erfolgreich empfangenen Frame -> nächste Stufe anstoßen
-        // -------------------------------------------------
-        if (g_state == UM_RX) {
-          // Wenn wir gerade eine REQ-Stufe abgeschlossen haben, geht's weiter.
-          if (g_qstage == Q_REQ_ERROR) {
-            g_qstage = Q_SELECT_STICHTAG;
-            g_state = UM_SEND;
-            g_state_ts = now;
-          } else if (g_qstage == Q_REQ_STICHTAG) {
-            g_qstage = Q_SELECT_STANDARD;
-            g_state = UM_SEND;
-            g_state_ts = now;
-          } else if (g_qstage == Q_REQ_STANDARD) {
-            g_qstage = Q_DONE;
-            g_state = UM_IDLE;
-          }
-        }
       } else {
         ESP_LOGW(TAG,
                  "Frame length reached (%u) but last byte != 0x16 (got %02X) -> resync",
@@ -581,7 +561,7 @@ void UltraMaXXComponent::loop() {
     g_last_rx_ms = now;
 
     // SND_NKE (reset/link)
-    const uint8_t reset[] = {0x10, 0x40, UM_ADDR, (uint8_t)((0x40 + UM_ADDR) & 0xFF), 0x16};
+    const uint8_t reset[] = {0x10, 0x40, 0xFE, 0x3E, 0x16};
     this->write_array(reset, sizeof(reset));
     this->flush();
     ESP_LOGI(TAG, "SND_NKE sent");
@@ -592,131 +572,20 @@ void UltraMaXXComponent::loop() {
   }
 
   if (g_state == UM_SEND && now - g_state_ts > 150) {
+    // REQ_UD2 with FCB toggle
+    const uint8_t ctrl = g_fcb_toggle ? 0x7B : 0x5B;
+    const uint8_t cs = (uint8_t) ((ctrl + 0xFE) & 0xFF);
+    const uint8_t req[] = {0x10, ctrl, 0xFE, cs, 0x16};
 
-    // -------------------------------------------------
-    // NEU: Frame-Wahl Sequenz (Fehlerzeit -> Stichtag -> Standard)
-    // -------------------------------------------------
+    this->write_array(req, sizeof(req));
+    this->flush();
+    ESP_LOGI(TAG, "REQ_UD2 sent");
 
-    // 1) Fehlerzeit auswählen (Subcode 0x01)
-    if (g_qstage == Q_SELECT_ERROR) {
-      const uint8_t cfield = 0x53; // SND_UD
-      const uint8_t ci = 0x50;     // Application reset
-      const uint8_t sub = 0x01;    // Fehlerzeit Modus
-      const uint8_t cs = (uint8_t)((cfield + UM_ADDR + ci + sub) & 0xFF);
+    g_fcb_toggle = !g_fcb_toggle;
 
-      const uint8_t frame_sel[] = {
-        0x68, 0x04, 0x04, 0x68,
-        cfield, UM_ADDR, ci, sub,
-        cs, 0x16
-      };
-
-      this->write_array(frame_sel, sizeof(frame_sel));
-      this->flush();
-      ESP_LOGI(TAG, "Frame switched to Fehlerzeit (01h)");
-
-      g_error_frame_selected = true;
-      g_qstage = Q_REQ_ERROR;
-      g_state_ts = now;
-      return;
-    }
-
-    // 2) REQ_UD2 für Fehlerzeit
-    if (g_qstage == Q_REQ_ERROR) {
-      const uint8_t ctrl = g_fcb_toggle ? 0x7B : 0x5B;
-      const uint8_t cs = (uint8_t)((ctrl + UM_ADDR) & 0xFF);
-      const uint8_t req[] = {0x10, ctrl, UM_ADDR, cs, 0x16};
-
-      this->write_array(req, sizeof(req));
-      this->flush();
-      ESP_LOGI(TAG, "REQ_UD2 sent (Fehlerzeit)");
-
-      g_fcb_toggle = !g_fcb_toggle;
-      g_state = UM_RX;
-      g_last_rx_ms = now;
-      return;
-    }
-
-    // 3) Stichtag auswählen (Subcode 0x02..0x13)
-    if (g_qstage == Q_SELECT_STICHTAG) {
-      const uint8_t cfield = 0x53; // SND_UD
-      const uint8_t ci = 0x50;     // Application reset
-      const uint8_t sub = g_stichtag_frame_no; // z.B. 0x02 = Monat -1
-      const uint8_t cs = (uint8_t)((cfield + UM_ADDR + ci + sub) & 0xFF);
-
-      const uint8_t frame_sel[] = {
-        0x68, 0x04, 0x04, 0x68,
-        cfield, UM_ADDR, ci, sub,
-        cs, 0x16
-      };
-
-      this->write_array(frame_sel, sizeof(frame_sel));
-      this->flush();
-      ESP_LOGI(TAG, "Frame switched to Stichtag (0x%02X)", sub);
-
-      g_stichtag_frame_selected = true;
-      g_qstage = Q_REQ_STICHTAG;
-      g_state_ts = now;
-      return;
-    }
-
-    // 4) REQ_UD2 für Stichtag
-    if (g_qstage == Q_REQ_STICHTAG) {
-      const uint8_t ctrl = g_fcb_toggle ? 0x7B : 0x5B;
-      const uint8_t cs = (uint8_t)((ctrl + UM_ADDR) & 0xFF);
-      const uint8_t req[] = {0x10, ctrl, UM_ADDR, cs, 0x16};
-
-      this->write_array(req, sizeof(req));
-      this->flush();
-      ESP_LOGI(TAG, "REQ_UD2 sent (Stichtag)");
-
-      g_fcb_toggle = !g_fcb_toggle;
-      g_state = UM_RX;
-      g_last_rx_ms = now;
-      return;
-    }
-
-    // 5) zurück auf Standardmodus (Application reset ohne Subcode)
-    if (g_qstage == Q_SELECT_STANDARD) {
-      const uint8_t cfield = 0x53; // SND_UD
-      const uint8_t ci = 0x50;     // Application reset
-      const uint8_t cs = (uint8_t)((cfield + UM_ADDR + ci) & 0xFF);
-
-      const uint8_t frame_sel[] = {
-        0x68, 0x03, 0x03, 0x68,
-        cfield, UM_ADDR, ci,
-        cs, 0x16
-      };
-
-      this->write_array(frame_sel, sizeof(frame_sel));
-      this->flush();
-      ESP_LOGI(TAG, "Frame switched to Standard mode");
-
-      g_qstage = Q_REQ_STANDARD;
-      g_state_ts = now;
-      return;
-    }
-
-    // 6) optional REQ_UD2 im Standardmodus (damit du nach dem Umschalten direkt wieder Standardwerte hast)
-    if (g_qstage == Q_REQ_STANDARD) {
-      const uint8_t ctrl = g_fcb_toggle ? 0x7B : 0x5B;
-      const uint8_t cs = (uint8_t)((ctrl + UM_ADDR) & 0xFF);
-      const uint8_t req[] = {0x10, ctrl, UM_ADDR, cs, 0x16};
-
-      this->write_array(req, sizeof(req));
-      this->flush();
-      ESP_LOGI(TAG, "REQ_UD2 sent (Standard)");
-
-      g_fcb_toggle = !g_fcb_toggle;
-      g_state = UM_RX;
-      g_last_rx_ms = now;
-      return;
-    }
-
-    // Fallback: falls DONE
-    if (g_qstage == Q_DONE) {
-      g_state = UM_IDLE;
-      return;
-    }
+    g_state = UM_RX;
+    g_last_rx_ms = now;
+    return;
   }
 }
 
