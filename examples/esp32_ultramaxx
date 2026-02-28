@@ -1,0 +1,70 @@
+esphome:
+  name: ultramaxx
+  friendly_name: Ultramaxx   # Dein Projektname hier eingeben
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/Cupra85/esphome_ultramaxx
+      ref: main
+    components: [ultramaxx]
+
+esp32:
+  board: esp32-s3-devkitc-1   # Dein Board hier eingeben
+  framework:
+    type: arduino
+
+logger:
+api:
+ota:
+
+uart:
+  id: bus_uart
+  rx_pin:
+    number: GPIO18   # Dein RX Pin
+    inverted: false
+  tx_pin:
+    number: GPIO17   # Dein TX Pin
+    inverted: false
+  baud_rate: 2400
+  parity: NONE
+  stop_bits: 1
+  rx_buffer_size: 1024
+
+sensor:
+  - platform: ultramaxx
+    id: ultramaxx
+    uart_id: bus_uart
+    update_interval: 12h   # update_interval weg lassen für 24h auslesen.
+
+    serial_number:
+      name: "UltraMaXX Seriennummer"
+    total_energy:
+      name: "UltraMaXX Gesamtenergie"
+    total_volume:
+      name: "UltraMaXX Gesamtvolumen"
+    power:
+      name: "UltraMaXX Leistung"
+    flow:
+      name: "UltraMaXX Fließgeschwindigkeit"
+    temp_flow:
+      name: "UltraMaXX Vorlauf Temperatur"
+    temp_return:
+      name: "UltraMaXX Rücklauf Temperatur"
+    temp_diff:
+      name: "UltraMaXX Temperatur Differenz"
+    meter_time:
+      name: "UltraMaXX Zeitstempel"
+    operating_time:
+      name: "UltraMaXX Betriebszeit"
+    firmware_version:
+      name: "UltraMaXX Firmware Version"
+    software_version:
+      name: "UltraMaXX Software Version"
+
+
+      
+  access_counter:
+    name: "UltraMaXX Zugriffszähler"
+  status_text:
+    name: "UltraMaXX Status"
