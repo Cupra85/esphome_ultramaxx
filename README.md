@@ -6,14 +6,13 @@ ESPHome External Component zum Auslesen eines **Allmess Integral-MK UltraMaXX** 
 
 ## Hardware
 
-- **ESP32-C6 WROOM** oder kompatibel
+- **ESP32-S3 Devkit** oder kompatibel
 - **Optokopf** nach Standard-Schaltung:
-  - IR-LED (z. B. SIR 204 EVL) mit 220 Ω Vorwiderstand
-  - Phototransistor (SFH 309 FA) mit 10 kΩ Pull-Up
-  - TX = GPIO 20 → IR-LED
-  - RX = GPIO 21 ← Phototransistor
+  - IR-LED (z.B. SFH487-3) mit 180 Ω Vorwiderstand
+  - Phototransistor (z.B. SFH309 FA) mit 4.7 kΩ Pull-Up
+  - TX = GPIO 17 → IR-LED
+  - RX = GPIO 18 ← Phototransistor
   - Gemeinsame Masse (GND)
-- Kommunikation: 2400 Bd, 8E1 (nach Wake-Up)
 
 ## Funktionsweise
 
