@@ -388,41 +388,41 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
       g_got_time = true;
     }
 
-      uint8_t last_vife = 0;
+        uint8_t last_vife = 0;
 
-  if (vif_ext) {
-    while (i < end) {
-      last_vife = buf[i++];
-      if (!(last_vife & 0x80)) break;
+    if (vif_ext) {
+      while (i < end) {
+        last_vife = buf[i++];
+        if (!(last_vife & 0x80)) break;
+      }
+    }
+
+    // ================= FIRMWARE VERSION =================
+    if (!got_fw_ && dif_len_code == 0x09 && vif_base == 0x7D && last_vife == 0x0E) {
+      if (invalid_value) {
+        ESP_LOGI(TAG, "FIRMWARE VERSION parsed: unknown");
+        if (firmware_version_) firmware_version_->publish_state(NAN);
+      } else {
+        float fw = decode_bcd_(buf, i, 1);
+        ESP_LOGI(TAG, "FIRMWARE VERSION parsed: %.0f", fw);
+        if (firmware_version_) firmware_version_->publish_state(fw);
+      }
+      got_fw_ = true;
+    }
+
+    // ================= SOFTWARE VERSION =================
+    if (!got_sw_ && dif_len_code == 0x09 && vif_base == 0x7D && last_vife == 0x0F) {
+      if (invalid_value) {
+        ESP_LOGI(TAG, "SOFTWARE VERSION parsed: unknown");
+        if (software_version_) software_version_->publish_state(NAN);
+      } else {
+       float sw = decode_bcd_(buf, i, 1);
+        ESP_LOGI(TAG, "SOFTWARE VERSION parsed: %.0f", sw);
+        if (software_version_) software_version_->publish_state(sw);
+      }
+      got_sw_ = true;
     }
   }
-
-  // ================= FIRMWARE VERSION =================
-  if (!got_fw_ && dif_len_code == 0x09 && vif_base == 0x7D && last_vife == 0x0E) {
-    if (invalid_value) {
-      ESP_LOGI(TAG, "FIRMWARE VERSION parsed: unknown");
-      if (firmware_version_) firmware_version_->publish_state(NAN);
-    } else {
-      float fw = decode_bcd_(buf, i, 1);
-      ESP_LOGI(TAG, "FIRMWARE VERSION parsed: %.0f", fw);
-      if (firmware_version_) firmware_version_->publish_state(fw);
-    }
-    got_fw_ = true;
-  }
-
-  // ================= SOFTWARE VERSION =================
-  if (!got_sw_ && dif_len_code == 0x09 && vif_base == 0x7D && last_vife == 0x0F) {
-    if (invalid_value) {
-      ESP_LOGI(TAG, "SOFTWARE VERSION parsed: unknown");
-      if (software_version_) software_version_->publish_state(NAN);
-    } else {
-      float sw = decode_bcd_(buf, i, 1);
-      ESP_LOGI(TAG, "SOFTWARE VERSION parsed: %.0f", sw);
-      if (software_version_) software_version_->publish_state(sw);
-    }
-    got_sw_ = true;
-  }
-}
 
     i += dlen;
   }
