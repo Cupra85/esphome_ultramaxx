@@ -11,7 +11,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v9.4";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v9.5";
 
 // --------------------------------------------------------------------------------------
 // Hinweis:
@@ -229,6 +229,7 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
       case 0x02: dlen = 2; break;
       case 0x03: dlen = 3; break;
       case 0x04: dlen = 4; break;
+      case 0x09: dlen = 1; break;
       case 0x0A: dlen = 2; break;
       case 0x0B: dlen = 3; break;
       case 0x0C: dlen = 4; break;
@@ -387,15 +388,8 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
       g_got_time = true;
     }
 
-    // ================= FIRMWARE/SOFTWARE VERSION =================
-if (dif == 0x09 && vif == 0xFD) {
-
-  // VIFE steht direkt vor den Datenbytes
-  uint8_t vife = buf[i - 1];
-
   // ================= FIRMWARE VERSION =================
-  if (!got_fw_ && vife == 0x0E) {
-
+  if (!got_fw_ && dif_len_code == 0x09 && vif_base == 0x7D && last_vife == 0x0E) {
     if (invalid_value) {
       ESP_LOGI(TAG, "FIRMWARE VERSION parsed: unknown");
       if (firmware_version_) firmware_version_->publish_state(NAN);
@@ -404,13 +398,11 @@ if (dif == 0x09 && vif == 0xFD) {
       ESP_LOGI(TAG, "FIRMWARE VERSION parsed: %.0f", fw);
       if (firmware_version_) firmware_version_->publish_state(fw);
     }
-
     got_fw_ = true;
   }
 
   // ================= SOFTWARE VERSION =================
-  if (!got_sw_ && vife == 0x0F) {
-
+  if (!got_sw_ && dif_len_code == 0x09 && vif_base == 0x7D && last_vife == 0x0F) {
     if (invalid_value) {
       ESP_LOGI(TAG, "SOFTWARE VERSION parsed: unknown");
       if (software_version_) software_version_->publish_state(NAN);
@@ -419,7 +411,6 @@ if (dif == 0x09 && vif == 0xFD) {
       ESP_LOGI(TAG, "SOFTWARE VERSION parsed: %.0f", sw);
       if (software_version_) software_version_->publish_state(sw);
     }
-
     got_sw_ = true;
   }
 }
