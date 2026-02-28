@@ -11,7 +11,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v9.6";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v9.7";
 
 // --------------------------------------------------------------------------------------
 // Hinweis:
@@ -216,10 +216,12 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     bool vif_ext = vif & 0x80;
     uint8_t vif_base = vif & 0x7F;
 
+    // ---- VIFE sauber hier lesen (WICHTIG) ----
+    uint8_t last_vife = 0;
     if (vif_ext) {
       while (i < end) {
-        uint8_t vife = buf[i++];
-        if (!(vife & 0x80)) break;
+        last_vife = buf[i++];
+        if (!(last_vife & 0x80)) break;
       }
     }
 
@@ -388,17 +390,9 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
       g_got_time = true;
     }
 
-        uint8_t last_vife = 0;
-
-    if (vif_ext) {
-      while (i < end) {
-        last_vife = buf[i++];
-        if (!(last_vife & 0x80)) break;
-      }
-    }
-
     // ================= FIRMWARE VERSION =================
-    if (!got_fw_ && dif_len_code == 0x09 && vif_base == 0x7D && last_vife == 0x0E) {
+    if (!got_fw_ && dif_len_code == 0x09 &&
+        vif_base == 0x7D && last_vife == 0x0E) {
       if (invalid_value) {
         ESP_LOGI(TAG, "FIRMWARE VERSION parsed: unknown");
         if (firmware_version_) firmware_version_->publish_state(NAN);
@@ -411,18 +405,18 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     }
 
     // ================= SOFTWARE VERSION =================
-    if (!got_sw_ && dif_len_code == 0x09 && vif_base == 0x7D && last_vife == 0x0F) {
+    if (!got_sw_ && dif_len_code == 0x09 &&
+        vif_base == 0x7D && last_vife == 0x0F) {
       if (invalid_value) {
         ESP_LOGI(TAG, "SOFTWARE VERSION parsed: unknown");
         if (software_version_) software_version_->publish_state(NAN);
       } else {
-       float sw = decode_bcd_(buf, i, 1);
+        float sw = decode_bcd_(buf, i, 1);
         ESP_LOGI(TAG, "SOFTWARE VERSION parsed: %.0f", sw);
         if (software_version_) software_version_->publish_state(sw);
       }
       got_sw_ = true;
     }
-  }
 
     i += dlen;
   }
