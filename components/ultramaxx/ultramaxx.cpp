@@ -11,7 +11,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v9.5";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v9.6";
 
 // --------------------------------------------------------------------------------------
 // Hinweis:
@@ -387,6 +387,15 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
       }
       g_got_time = true;
     }
+
+      uint8_t last_vife = 0;
+
+  if (vif_ext) {
+    while (i < end) {
+      last_vife = buf[i++];
+      if (!(last_vife & 0x80)) break;
+    }
+  }
 
   // ================= FIRMWARE VERSION =================
   if (!got_fw_ && dif_len_code == 0x09 && vif_base == 0x7D && last_vife == 0x0E) {
