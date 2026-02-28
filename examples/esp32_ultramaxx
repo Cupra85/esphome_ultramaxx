@@ -61,10 +61,11 @@ sensor:
       name: "UltraMaXX Firmware Version"
     software_version:
       name: "UltraMaXX Software Version"
+    access_counter:
+      name: "UltraMaXX Zugriffszähler"
+    status_text:
+      name: "UltraMaXX Status"
 
 
-      
-  access_counter:
-    name: "UltraMaXX Zugriffszähler"
-  status_text:
-    name: "UltraMaXX Status"
+
+
