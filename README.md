@@ -35,4 +35,6 @@ Nach erfolgreicher Kommunikation erscheinen in Home Assistant folgende Sensoren:
 Hinweis: Der Zugriffszähler wird nur bis 255 angezeigt, danach startet wieder bei 0. (nur 1 Bit Wert)
 Der Zeitstempel Zeigt die Zählerinterne Zeit an. (kann von der tatsächlichen Zeit abweichen)
 
-## Beispiel-Foto Anschluss
+## Extras
+- Onboard LED Fehleranzeige
+- Erweiterung auf bis zu 16 Ulramaxx mit einem ESP32 auszulesen (Standard Hardware UART maximal 2 Leseköpfe)
