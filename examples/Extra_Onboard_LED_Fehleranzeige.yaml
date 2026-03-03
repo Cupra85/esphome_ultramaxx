@@ -1,0 +1,59 @@
+light:
+  - platform: neopixelbus
+    id: onboard_led
+    pin: GPIO48
+    num_leds: 1
+    variant: WS2812
+    type: GRB
+    restore_mode: ALWAYS_OFF
+
+    effects:
+      - pulse:
+          name: "Pulse"
+          transition_length: 1s
+          update_interval: 1s
+
+sensor:
+...
+...
+...
+    status_text:
+      name: "UltraMaXX Status"
+      id: ultramaxx_status
+
+      on_value:
+        then:
+          - lambda: |-
+              std::string s = id(ultramaxx_status).state;
+
+              // 1️⃣ Permanent Error -> Rot Dauerlicht
+              if (s.find("Permanent Error") != std::string::npos) {
+                auto call = id(onboard_led).turn_on();
+                call.set_rgb(1.0, 0.0, 0.0);
+                call.set_brightness(0.1);
+                call.set_effect("None");
+                call.perform();
+              }
+
+              // 2️⃣ Temporary Error -> Rot Pulsieren
+              else if (s.find("Temporary Error") != std::string::npos) {
+                auto call = id(onboard_led).turn_on();
+                call.set_rgb(1.0, 0.0, 0.0);
+                call.set_brightness(0.1);
+                call.set_effect("Pulse");
+                call.perform();
+              }
+
+              // 3️⃣ Low Battery -> Gelb Dauerlicht
+              else if (s.find("Low Battery") != std::string::npos) {
+                auto call = id(onboard_led).turn_on();
+                call.set_rgb(1.0, 1.0, 0.0);
+                call.set_brightness(0.1);
+                call.set_effect("None");
+                call.perform();
+              }
+
+              // 4️⃣ All OK -> LED aus
+              else {
+                id(onboard_led).turn_off();
+              }
