@@ -37,4 +37,4 @@ Der Zeitstempel Zeigt die Zählerinterne Zeit an. (kann von der tatsächlichen Z
 
 ## Extras
 - Onboard LED Fehleranzeige
-- Erweiterung auf bis zu 18 Ultramaxx mit einem ESP32 auszulesen (2 Standard ESP Hardware UART + bis zu 16 über I2C Expander)
+  
