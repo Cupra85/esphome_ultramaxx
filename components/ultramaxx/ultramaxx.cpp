@@ -11,45 +11,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v9.7";
-
-// --------------------------------------------------------------------------------------
-// Hinweis:
-// Dein ultramaxx.h deklariert keine RX-/State-Member (rx_buffer_, in_frame_, ...).
-// Damit es OHNE Header-Änderung kompiliert, halte ich den Runtime-State hier static.
-// Das setzt (wie bei den meisten Installationen) genau 1 Instanz voraus.
-// --------------------------------------------------------------------------------------
-
-enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
-static UMState g_state = UM_IDLE;
-
-// UART / Frame RX state
-static std::vector<uint8_t> g_rx_buffer;
-static bool g_in_frame = false;
-static size_t g_expected_len = 0;
-static uint32_t g_last_rx_ms = 0;
-
-// Wakeup / timing
-static uint32_t g_wake_start = 0;
-static uint32_t g_last_send = 0;
-static uint32_t g_state_ts = 0;
-
-// M-Bus FCB toggle for REQ_UD2
-static bool g_fcb_toggle = false;
-
-// Parse-once flags (pro update() Reset)
-static bool g_got_serial = false;
-static bool g_got_energy = false;
-static bool g_got_volume = false;
-static bool g_got_tflow = false;
-static bool g_got_tret = false;
-static bool g_got_tdiff = false;
-static bool g_got_time = false;
-static bool g_got_operating = false;
-static bool g_got_access_counter = false;
-static bool g_got_status = false;
-static bool got_fw_ = false;
-static bool got_sw_ = false;
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v10.0";
 
 // --------------------------------------------------------------------------------------
 // Decoder
@@ -146,18 +108,17 @@ std::string UltraMaXXComponent::decode_status_text_(uint8_t status) const {
 // --------------------------------------------------------------------------------------
 
 void UltraMaXXComponent::reset_parse_flags_() {
-  g_got_serial = false;
-  g_got_energy = false;
-  g_got_volume = false;
-  g_got_tflow = false;
-  g_got_tret = false;
-  g_got_tdiff = false;
-  g_got_time = false;
-  g_got_operating = false;
-  g_got_access_counter = false;
-  g_got_status = false;
+  got_serial_ = false;
+  got_energy_ = false;
+  got_volume_ = false;
+  got_tflow_ = false;
+  got_tret_ = false;
+  got_tdiff_ = false;
+  got_time_ = false;
+  got_operating_ = false;
+  got_access_counter_ = false;
+  got_status_ = false;
 
-  // Diese vier Flags existieren im Header -> nutzen wir auch sauber als "parsed once"
   got_power_ = false;
   got_flow_ = false;
   got_fw_ = false;
@@ -174,16 +135,16 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
 
   // ---------------- FIXED DATA HEADER ----------------
   if (n > 16) {
-    if (!g_got_access_counter) {
+    if (!got_access_counter_) {
       uint8_t access = buf[15];
-      g_got_access_counter = true;
-      ESP_LOGI(TAG, "ACCESS COUNTER parsed: %u", (unsigned)access);
-      if (access_counter_) access_counter_->publish_state((float)access);
+      got_access_counter_ = true;
+      ESP_LOGI(TAG, "ACCESS COUNTER parsed: %u", (unsigned) access);
+      if (access_counter_) access_counter_->publish_state((float) access);
     }
 
-    if (!g_got_status) {
+    if (!got_status_) {
       uint8_t status = buf[16];
-      g_got_status = true;
+      got_status_ = true;
       std::string st = decode_status_text_(status);
       ESP_LOGI(TAG, "STATUS parsed: %s", st.c_str());
       if (status_text_) status_text_->publish_state(st);
@@ -195,11 +156,10 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
   const size_t end = n - 2;
 
   while (i < end) {
-
     uint8_t dif = buf[i++];
     if (dif == 0x2F) continue;
 
-    bool dif_ext   = dif & 0x80;
+    bool dif_ext = dif & 0x80;
     bool dif_error = dif & 0x40;
     uint8_t dif_len_code = dif & 0x0F;
 
@@ -227,15 +187,32 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
 
     size_t dlen = 0;
     switch (dif_len_code) {
-      case 0x01: dlen = 1; break;
-      case 0x02: dlen = 2; break;
-      case 0x03: dlen = 3; break;
-      case 0x04: dlen = 4; break;
-      case 0x09: dlen = 1; break;
-      case 0x0A: dlen = 2; break;
-      case 0x0B: dlen = 3; break;
-      case 0x0C: dlen = 4; break;
-      default: return;
+      case 0x01:
+        dlen = 1;
+        break;
+      case 0x02:
+        dlen = 2;
+        break;
+      case 0x03:
+        dlen = 3;
+        break;
+      case 0x04:
+        dlen = 4;
+        break;
+      case 0x09:
+        dlen = 1;
+        break;
+      case 0x0A:
+        dlen = 2;
+        break;
+      case 0x0B:
+        dlen = 3;
+        break;
+      case 0x0C:
+        dlen = 4;
+        break;
+      default:
+        return;
     }
 
     if (i + dlen > end) break;
@@ -255,7 +232,7 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     bool invalid_value = dif_error || invalid_99;
 
     // ================= SERIAL =================
-    if (!g_got_serial && dif_len_code == 0x0C && vif_base == 0x78) {
+    if (!got_serial_ && dif_len_code == 0x0C && vif_base == 0x78) {
       if (invalid_value) {
         ESP_LOGI(TAG, "SERIAL parsed: unknown");
         if (serial_number_) serial_number_->publish_state(NAN);
@@ -264,24 +241,24 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
         ESP_LOGI(TAG, "SERIAL parsed: %.0f", sn);
         if (serial_number_) serial_number_->publish_state(sn);
       }
-      g_got_serial = true;
+      got_serial_ = true;
     }
 
     // ================= ENERGY =================
-    if (!g_got_energy && dif_len_code == 0x04 && vif_base == 0x06) {
+    if (!got_energy_ && dif_len_code == 0x04 && vif_base == 0x06) {
       if (invalid_value) {
         ESP_LOGI(TAG, "ENERGY parsed: unknown");
         if (total_energy_) total_energy_->publish_state(NAN);
       } else {
         uint32_t raw = decode_u_le_(buf, i, 4);
-        ESP_LOGI(TAG, "ENERGY parsed: %u kWh", (unsigned)raw);
-        if (total_energy_) total_energy_->publish_state((float)raw);
+        ESP_LOGI(TAG, "ENERGY parsed: %u kWh", (unsigned) raw);
+        if (total_energy_) total_energy_->publish_state((float) raw);
       }
-      g_got_energy = true;
+      got_energy_ = true;
     }
 
     // ================= VOLUME =================
-    if (!g_got_volume && dif_len_code == 0x0C && vif_base == 0x14) {
+    if (!got_volume_ && dif_len_code == 0x0C && vif_base == 0x14) {
       if (invalid_value) {
         ESP_LOGI(TAG, "VOLUME parsed: unknown");
         if (total_volume_) total_volume_->publish_state(NAN);
@@ -290,11 +267,11 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
         ESP_LOGI(TAG, "VOLUME parsed: %.2f m³", v);
         if (total_volume_) total_volume_->publish_state(v);
       }
-      g_got_volume = true;
+      got_volume_ = true;
     }
 
     // ================= FLOW TEMP =================
-    if (!g_got_tflow && dif_len_code == 0x0A && vif_base == 0x5A) {
+    if (!got_tflow_ && dif_len_code == 0x0A && vif_base == 0x5A) {
       if (invalid_value) {
         ESP_LOGI(TAG, "FLOW TEMP parsed: unknown");
         if (temp_flow_) temp_flow_->publish_state(NAN);
@@ -303,11 +280,11 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
         ESP_LOGI(TAG, "FLOW TEMP parsed: %.1f °C", t);
         if (temp_flow_) temp_flow_->publish_state(t);
       }
-      g_got_tflow = true;
+      got_tflow_ = true;
     }
 
     // ================= RETURN TEMP =================
-    if (!g_got_tret && dif_len_code == 0x0A && vif_base == 0x5E) {
+    if (!got_tret_ && dif_len_code == 0x0A && vif_base == 0x5E) {
       if (invalid_value) {
         ESP_LOGI(TAG, "RETURN TEMP parsed: unknown");
         if (temp_return_) temp_return_->publish_state(NAN);
@@ -316,11 +293,11 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
         ESP_LOGI(TAG, "RETURN TEMP parsed: %.1f °C", t);
         if (temp_return_) temp_return_->publish_state(t);
       }
-      g_got_tret = true;
+      got_tret_ = true;
     }
 
     // ================= DELTA T =================
-    if (!g_got_tdiff && dif_len_code == 0x0B && vif_base == 0x61) {
+    if (!got_tdiff_ && dif_len_code == 0x0B && vif_base == 0x61) {
       if (invalid_value) {
         ESP_LOGI(TAG, "DELTA T parsed: unknown");
         if (temp_diff_) temp_diff_->publish_state(NAN);
@@ -329,12 +306,11 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
         ESP_LOGI(TAG, "DELTA T parsed: %.2f °C", dt);
         if (temp_diff_) temp_diff_->publish_state(dt);
       }
-      g_got_tdiff = true;
+      got_tdiff_ = true;
     }
 
     // ================= POWER =================
-    if (!got_power_ && dif_len_code == 0x0B &&
-        (vif_base == 0x2D || vif_base == 0x2E)) {
+    if (!got_power_ && dif_len_code == 0x0B && (vif_base == 0x2D || vif_base == 0x2E)) {
       if (invalid_value) {
         ESP_LOGI(TAG, "POWER parsed: unknown");
         if (current_power_) current_power_->publish_state(NAN);
@@ -360,20 +336,20 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     }
 
     // ================= OPERATING TIME =================
-    if (!g_got_operating && dif_len_code == 0x02 && vif_base == 0x27) {
+    if (!got_operating_ && dif_len_code == 0x02 && vif_base == 0x27) {
       if (invalid_value) {
         ESP_LOGI(TAG, "OPERATING TIME parsed: unknown");
         if (operating_time_) operating_time_->publish_state(NAN);
       } else {
         uint32_t days = decode_u_le_(buf, i, 2);
-        ESP_LOGI(TAG, "OPERATING TIME parsed: %u days", (unsigned)days);
-        if (operating_time_) operating_time_->publish_state((float)days);
+        ESP_LOGI(TAG, "OPERATING TIME parsed: %u days", (unsigned) days);
+        if (operating_time_) operating_time_->publish_state((float) days);
       }
-      g_got_operating = true;
+      got_operating_ = true;
     }
 
     // ================= TIME =================
-    if (!g_got_time && dif_len_code == 0x04 && vif_base == 0x6D) {
+    if (!got_time_ && dif_len_code == 0x04 && vif_base == 0x6D) {
       if (dif_error) {
         ESP_LOGI(TAG, "TIME parsed: unknown");
         if (meter_time_) meter_time_->publish_state("unknown");
@@ -387,12 +363,11 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
           if (meter_time_) meter_time_->publish_state("unknown");
         }
       }
-      g_got_time = true;
+      got_time_ = true;
     }
 
     // ================= FIRMWARE VERSION =================
-    if (!got_fw_ && dif_len_code == 0x09 &&
-        vif_base == 0x7D && last_vife == 0x0E) {
+    if (!got_fw_ && dif_len_code == 0x09 && vif_base == 0x7D && last_vife == 0x0E) {
       if (invalid_value) {
         ESP_LOGI(TAG, "FIRMWARE VERSION parsed: unknown");
         if (firmware_version_) firmware_version_->publish_state(NAN);
@@ -405,8 +380,7 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
     }
 
     // ================= SOFTWARE VERSION =================
-    if (!got_sw_ && dif_len_code == 0x09 &&
-        vif_base == 0x7D && last_vife == 0x0F) {
+    if (!got_sw_ && dif_len_code == 0x09 && vif_base == 0x7D && last_vife == 0x0F) {
       if (invalid_value) {
         ESP_LOGI(TAG, "SOFTWARE VERSION parsed: unknown");
         if (software_version_) software_version_->publish_state(NAN);
@@ -438,16 +412,16 @@ void UltraMaXXComponent::update() {
   this->parent_->set_parity(uart::UART_CONFIG_PARITY_NONE);
   this->parent_->load_settings();
 
-  g_rx_buffer.clear();
-  g_in_frame = false;
-  g_expected_len = 0;
-  g_last_rx_ms = 0;
+  rx_buffer_.clear();
+  in_frame_ = false;
+  expected_len_ = 0;
+  last_rx_ms_ = 0;
 
   reset_parse_flags_();
 
-  g_wake_start = millis();
-  g_last_send = 0;
-  g_state = UM_WAKEUP;
+  wake_start_ = millis();
+  last_send_ = 0;
+  state_ = UM_WAKEUP;
 }
 
 void UltraMaXXComponent::loop() {
@@ -458,92 +432,91 @@ void UltraMaXXComponent::loop() {
     uint8_t c;
     if (!this->read_byte(&c)) break;
 
-    g_last_rx_ms = now;
+    last_rx_ms_ = now;
 
-    if (!g_in_frame) {
+    if (!in_frame_) {
       if (c != 0x68) continue;  // wait start
-      g_in_frame = true;
-      g_rx_buffer.clear();
-      g_expected_len = 0;
-      g_rx_buffer.push_back(c);
+      in_frame_ = true;
+      rx_buffer_.clear();
+      expected_len_ = 0;
+      rx_buffer_.push_back(c);
       continue;
     }
 
-    g_rx_buffer.push_back(c);
+    rx_buffer_.push_back(c);
 
     // After 4 bytes: 68 L L 68
-    if (g_rx_buffer.size() == 4) {
-      const uint8_t L1 = g_rx_buffer[1];
-      const uint8_t L2 = g_rx_buffer[2];
-      const uint8_t S2 = g_rx_buffer[3];
+    if (rx_buffer_.size() == 4) {
+      const uint8_t L1 = rx_buffer_[1];
+      const uint8_t L2 = rx_buffer_[2];
+      const uint8_t S2 = rx_buffer_[3];
       if (S2 != 0x68 || L1 != L2 || L1 < 3) {
-        g_in_frame = false;
-        g_rx_buffer.clear();
-        g_expected_len = 0;
+        in_frame_ = false;
+        rx_buffer_.clear();
+        expected_len_ = 0;
         continue;
       }
       // total = 4(header) + L(data) + 2(CS + 0x16)
-      g_expected_len = (size_t) (4 + L1 + 2);
+      expected_len_ = (size_t) (4 + L1 + 2);
     }
 
     // Frame complete?
-    if (g_expected_len > 0 && g_rx_buffer.size() >= g_expected_len) {
-      if (g_rx_buffer.back() == 0x16) {
-        // optional: hex dump once per full frame
+    if (expected_len_ > 0 && rx_buffer_.size() >= expected_len_) {
+      if (rx_buffer_.back() == 0x16) {
         std::string hex;
         char tmp[4];
-        for (uint8_t b : g_rx_buffer) {
+        for (uint8_t b : rx_buffer_) {
           std::snprintf(tmp, sizeof(tmp), "%02X ", b);
           hex += tmp;
         }
         ESP_LOGI(TAG, "FRAME HEX: %s", hex.c_str());
 
-        parse_and_publish_(g_rx_buffer);
+        parse_and_publish_(rx_buffer_);
       } else {
-        ESP_LOGW(TAG,
-                 "Frame length reached (%u) but last byte != 0x16 (got %02X) -> resync",
-                 (unsigned) g_rx_buffer.size(), g_rx_buffer.back());
+        ESP_LOGW(TAG, "Frame length reached (%u) but last byte != 0x16 (got %02X) -> resync",
+                 (unsigned) rx_buffer_.size(), rx_buffer_.back());
       }
 
-      g_in_frame = false;
-      g_rx_buffer.clear();
-      g_expected_len = 0;
+      in_frame_ = false;
+      rx_buffer_.clear();
+      expected_len_ = 0;
     }
   }
 
   // -------------------- RX timeout handling --------------------
-  if (g_state == UM_RX) {
-    if (!g_in_frame && (now - g_last_rx_ms > 2200)) {
-      ESP_LOGW(TAG, "RX Timeout (no header). buf=%u", (unsigned) g_rx_buffer.size());
-      g_state = UM_IDLE;
+  if (state_ == UM_RX) {
+    if (!in_frame_ && (now - last_rx_ms_ > 2200)) {
+      ESP_LOGW(TAG, "RX Timeout (no header). buf=%u", (unsigned) rx_buffer_.size());
+      state_ = UM_IDLE;
     }
-    if (g_in_frame && (now - g_last_rx_ms > 2200)) {
-      ESP_LOGW(TAG, "RX Timeout (in frame). buf=%u exp=%u", (unsigned) g_rx_buffer.size(), (unsigned) g_expected_len);
-      g_in_frame = false;
-      g_rx_buffer.clear();
-      g_expected_len = 0;
-      g_state = UM_IDLE;
+    if (in_frame_ && (now - last_rx_ms_ > 2200)) {
+      ESP_LOGW(TAG, "RX Timeout (in frame). buf=%u exp=%u", (unsigned) rx_buffer_.size(),
+               (unsigned) expected_len_);
+      in_frame_ = false;
+      rx_buffer_.clear();
+      expected_len_ = 0;
+      state_ = UM_IDLE;
     }
   }
 
   // -------------------- State machine --------------------
-  if (g_state == UM_WAKEUP) {
+  if (state_ == UM_WAKEUP) {
     // send 0x55 for ~2.2s
-    if (now - g_last_send > 15) {
+    if (now - last_send_ > 15) {
       uint8_t buf[20];
       std::memset(buf, 0x55, sizeof(buf));
       this->write_array(buf, sizeof(buf));
-      g_last_send = now;
+      last_send_ = now;
     }
-    if (now - g_wake_start > 2200) {
+    if (now - wake_start_ > 2200) {
       ESP_LOGI(TAG, "Wakeup end");
-      g_state = UM_WAIT;
-      g_state_ts = now;
+      state_ = UM_WAIT;
+      state_ts_ = now;
     }
     return;
   }
 
-  if (g_state == UM_WAIT && now - g_state_ts > 350) {
+  if (state_ == UM_WAIT && now - state_ts_ > 350) {
     ESP_LOGI(TAG, "Switch to 2400 8E1");
     this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
     this->parent_->load_settings();
@@ -552,10 +525,10 @@ void UltraMaXXComponent::loop() {
     uint8_t d;
     while (this->available()) this->read_byte(&d);
 
-    g_rx_buffer.clear();
-    g_in_frame = false;
-    g_expected_len = 0;
-    g_last_rx_ms = now;
+    rx_buffer_.clear();
+    in_frame_ = false;
+    expected_len_ = 0;
+    last_rx_ms_ = now;
 
     // SND_NKE (reset/link)
     const uint8_t reset[] = {0x10, 0x40, 0xFE, 0x3E, 0x16};
@@ -563,14 +536,14 @@ void UltraMaXXComponent::loop() {
     this->flush();
     ESP_LOGI(TAG, "SND_NKE sent");
 
-    g_state = UM_SEND;
-    g_state_ts = now;
+    state_ = UM_SEND;
+    state_ts_ = now;
     return;
   }
 
-  if (g_state == UM_SEND && now - g_state_ts > 150) {
+  if (state_ == UM_SEND && now - state_ts_ > 150) {
     // REQ_UD2 with FCB toggle
-    const uint8_t ctrl = g_fcb_toggle ? 0x7B : 0x5B;
+    const uint8_t ctrl = fcb_toggle_ ? 0x7B : 0x5B;
     const uint8_t cs = (uint8_t) ((ctrl + 0xFE) & 0xFF);
     const uint8_t req[] = {0x10, ctrl, 0xFE, cs, 0x16};
 
@@ -578,10 +551,10 @@ void UltraMaXXComponent::loop() {
     this->flush();
     ESP_LOGI(TAG, "REQ_UD2 sent");
 
-    g_fcb_toggle = !g_fcb_toggle;
+    fcb_toggle_ = !fcb_toggle_;
 
-    g_state = UM_RX;
-    g_last_rx_ms = now;
+    state_ = UM_RX;
+    last_rx_ms_ = now;
     return;
   }
 }
