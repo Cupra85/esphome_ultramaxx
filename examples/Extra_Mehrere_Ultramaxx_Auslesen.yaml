@@ -1,9 +1,149 @@
 interval:
-  - interval: 45s
+  - interval: 12h
     startup_delay: 20s
     then:
       - component.update: ultramaxx_1
       - delay: 8s
-      - component.update: ultramaxx_3
+      - component.update: ultramaxx_2
       - delay: 8s
-      - component.update: ultramaxx_5
+      - component.update: ultramaxx_3
+
+uart:
+  - id: ultramaxx_hz_uart_1
+    rx_pin:
+      number: GPIO7
+      inverted: false
+    tx_pin:
+      number: GPIO6
+      inverted: false
+    baud_rate: 2400
+    parity: NONE
+    stop_bits: 1
+    rx_buffer_size: 1024
+
+  - id: ultramaxx_hz_uart_2
+    rx_pin:
+      number: GPIO17
+      inverted: false
+    tx_pin:
+      number: GPIO18
+      inverted: false
+    baud_rate: 2400
+    parity: NONE
+    stop_bits: 1
+    rx_buffer_size: 1024
+
+  - id: ultramaxx_hz_uart_3
+    rx_pin:
+      number: GPIO10
+      inverted: false
+    tx_pin:
+      number: GPIO11
+      inverted: false
+    baud_rate: 2400
+    parity: NONE
+    stop_bits: 1
+    rx_buffer_size: 1024
+
+sensor:
+  - platform: ultramaxx
+    id: ultramaxx_1
+    uart_id: ultramaxx_hz_uart_1
+    update_interval: never
+
+    serial_number:
+      name: "1 Seriennummer"
+    total_energy:
+      name: "1 Gesamtenergie"
+    total_volume:
+      name: "1 Gesamtvolumen"
+    power:
+      name: "1 Leistung"
+    flow:
+      name: "1 Flow"
+    temp_flow:
+      name: "1 Vorlauf Temperatur"
+    temp_return:
+      name: "1 Rücklauf Temperatur"
+    temp_diff:
+      name: "1 Temperatur Differenz"
+    meter_time:
+      name: "1 Zeitstempel"
+    operating_time:
+      name: "1 Betriebszeit"
+    firmware_version:
+      name: "1 Firmware Version"
+    software_version:
+      name: "1 Software Version"
+    access_counter:
+      name: "1 Zugriffszähler"
+    status_text:
+      name: "1 Status"
+
+  - platform: ultramaxx
+    id: ultramaxx_2
+    uart_id: ultramaxx_hz_uart_2
+    update_interval: never
+
+    serial_number:
+      name: "2 Seriennummer"
+    total_energy:
+      name: "2 Gesamtenergie"
+    total_volume:
+      name: "2 Gesamtvolumen"
+    power:
+      name: "2 Leistung"
+    flow:
+      name: "2 Flow"
+    temp_flow:
+      name: "2 Vorlauf Temperatur"
+    temp_return:
+      name: "2 Rücklauf Temperatur"
+    temp_diff:
+      name: "2 Temperatur Differenz"
+    meter_time:
+      name: "2 Zeitstempel"
+    operating_time:
+      name: "2 Betriebszeit"
+    firmware_version:
+      name: "2 Firmware Version"
+    software_version:
+      name: "2 Software Version"
+    access_counter:
+      name: "2 Zugriffszähler"
+    status_text:
+      name: "2 Status"
+
+  - platform: ultramaxx
+    id: ultramaxx_3
+    uart_id: ultramaxx_hz_uart_3
+    update_interval: never
+
+    serial_number:
+      name: "3 Seriennummer"
+    total_energy:
+      name: "3 Gesamtenergie"
+    total_volume:
+      name: "3 Gesamtvolumen"
+    power:
+      name: "3 Leistung"
+    flow:
+      name: "3 Flow"
+    temp_flow:
+      name: "3 Vorlauf Temperatur"
+    temp_return:
+      name: "3 Rücklauf Temperatur"
+    temp_diff:
+      name: "3 Temperatur Differenz"
+    meter_time:
+      name: "3 Zeitstempel"
+    operating_time:
+      name: "3 Betriebszeit"
+    firmware_version:
+      name: "3 Firmware Version"
+    software_version:
+      name: "3 Software Version"
+    access_counter:
+      name: "3 Zugriffszähler"
+    status_text:
+      name: "3 Status"
