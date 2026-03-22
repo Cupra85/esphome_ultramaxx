@@ -44,4 +44,6 @@ Nach erfolgreicher Kommunikation erscheinen in Home Assistant folgende Sensoren:
 - Onboard LED Fehleranzeige.
   Kein Fehler = LED Aus / Low Battery = LED dauerhaft gelb / Temporary Error = LED pulsiert rot / Permanent Error = LED dauerhaft rot.
 - Mehrere Ultramaxx mit einem ESP32 auslesen (bis zu 3 Stück! ESP32 S3 hat 3 Hardware Uart Anschlüsse)
+
+Beispiele im Examples Ordner!
   
