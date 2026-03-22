@@ -41,5 +41,6 @@ Nach erfolgreicher Kommunikation erscheinen in Home Assistant folgende Sensoren:
   - Der Zeitstempel Zeigt die Zählerinterne Zeit an. (kann von der tatsächlichen Zeit abweichen)
 
 ## Extras
-- Onboard LED Fehleranzeige5 kein Fehler = LED Aus / Low Battery oder Temporary Error = LED pulsiert rot / Permanent Error = LED dauerhaft rot.
+- Onboard LED Fehleranzeige
+  kein Fehler = LED Aus / Low Battery = LED dauerhaft gelb / Temporary Error = LED pulsiert rot / Permanent Error = LED dauerhaft rot.
   
