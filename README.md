@@ -5,7 +5,7 @@ ESPHome External Component zum Auslesen eines **Allmess Integral-MK UltraMaXX** 
 **Init/Request (SND_NKE + REQ_UD2)** und Dekodierung typischer Messwerte.
 
 ## Hardware
-<img align="right" width="300" src="examples/ESP32_S3_Schaltplan.jpg">
+<img align="right" width="250" src="examples/ESP32_S3_Schaltplan.jpg">
 
 - **ESP32-S3 Devkit** oder kompatibel
 - **Optokopf** nach Standard-Schaltung:
@@ -39,5 +39,5 @@ Hinweis: Der Zugriffszähler wird nur bis 255 angezeigt, danach startet wieder b
 Der Zeitstempel Zeigt die Zählerinterne Zeit an. (kann von der tatsächlichen Zeit abweichen)
 
 ## Extras
-- Onboard LED Fehleranzeige, kein Fehler = LED Aus / Low Battery oder Temporary Error = LED pulsiert rot / Permanent Error = LED dauerhaft rot.
+- Onboard LED Fehleranzeige5 kein Fehler = LED Aus / Low Battery oder Temporary Error = LED pulsiert rot / Permanent Error = LED dauerhaft rot.
   
