@@ -35,9 +35,9 @@ Nach erfolgreicher Kommunikation erscheinen in Home Assistant folgende Sensoren:
 - Software Version
 - Status (All OK/Low Battery/Temporary Error/Permanent Error)
 
-Hinweis: Der Zugriffszähler wird nur bis 255 angezeigt, danach startet wieder bei 0. (nur 1 Bit Wert)
-
-Der Zeitstempel Zeigt die Zählerinterne Zeit an. (kann von der tatsächlichen Zeit abweichen)
+Hinweis: 
+- Der Zugriffszähler wird nur bis 255 angezeigt, danach startet wieder bei 0. (nur 1 Bit Wert)
+- Der Zeitstempel Zeigt die Zählerinterne Zeit an. (kann von der tatsächlichen Zeit abweichen)
 
 ## Extras
 - Onboard LED Fehleranzeige5 kein Fehler = LED Aus / Low Battery oder Temporary Error = LED pulsiert rot / Permanent Error = LED dauerhaft rot.
