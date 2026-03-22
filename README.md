@@ -15,7 +15,7 @@ ESPHome External Component zum Auslesen eines **Allmess Integral-MK UltraMaXX** 
   - RX = GPIO 18 ← Phototransistor
   - Gemeinsame Masse (GND)
  
-  - 
+  
 
 ## Ausgelesene Daten
 
