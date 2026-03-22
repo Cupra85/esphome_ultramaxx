@@ -16,7 +16,8 @@ ESPHome External Component zum Auslesen eines **Allmess Integral-MK UltraMaXX** 
   - Gemeinsame Masse (GND)
  
 
-  
+
+
 
 ## Ausgelesene Daten
 
