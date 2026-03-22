@@ -4,7 +4,7 @@ light:
     pin: GPIO48
     num_leds: 1
     variant: WS2812
-    type: GRB
+    type: RGB
     restore_mode: ALWAYS_OFF
 
     effects:
