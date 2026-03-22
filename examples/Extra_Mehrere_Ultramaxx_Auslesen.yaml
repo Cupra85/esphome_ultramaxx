@@ -1,5 +1,25 @@
+esphome:
+  name: ultramaxx
+  friendly_name: Ultramaxx   # Dein Projektname hier eingeben
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/Cupra85/esphome_ultramaxx
+      ref: main
+    components: [ultramaxx]
+
+esp32:
+  board: esp32-s3-devkitc-1   # Dein Board hier eingeben
+  framework:
+    type: arduino
+
+logger:
+api:
+ota:
+
 interval:
-  - interval: 12h
+  - interval: 12h     # Hier dein Update Interval
     startup_delay: 20s
     then:
       - component.update: ultramaxx_1
@@ -11,10 +31,10 @@ interval:
 uart:
   - id: ultramaxx_hz_uart_1
     rx_pin:
-      number: GPIO7
+      number: GPIO7     # Dein RX Pin
       inverted: false
     tx_pin:
-      number: GPIO6
+      number: GPIO6     # Dein TX Pin
       inverted: false
     baud_rate: 2400
     parity: NONE
@@ -23,10 +43,10 @@ uart:
 
   - id: ultramaxx_hz_uart_2
     rx_pin:
-      number: GPIO17
+      number: GPIO17     # Dein RX Pin
       inverted: false
     tx_pin:
-      number: GPIO18
+      number: GPIO18     # Dein TX Pin
       inverted: false
     baud_rate: 2400
     parity: NONE
@@ -35,10 +55,10 @@ uart:
 
   - id: ultramaxx_hz_uart_3
     rx_pin:
-      number: GPIO10
+      number: GPIO10     # Dein RX Pin
       inverted: false
     tx_pin:
-      number: GPIO11
+      number: GPIO11     # Dein TX Pin
       inverted: false
     baud_rate: 2400
     parity: NONE
