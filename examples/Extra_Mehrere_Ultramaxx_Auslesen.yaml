@@ -1,0 +1,9 @@
+interval:
+  - interval: 45s
+    startup_delay: 20s
+    then:
+      - component.update: ultramaxx_1
+      - delay: 8s
+      - component.update: ultramaxx_3
+      - delay: 8s
+      - component.update: ultramaxx_5
