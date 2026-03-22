@@ -7,6 +7,7 @@ ESPHome External Component zum Auslesen eines **Allmess Integral-MK UltraMaXX** 
 ## Hardware
 <img align="right" width="250" hspace="50" src="examples/ESP32_S3_Schaltplan.jpg">      
 
+
 - **ESP32-S3 Devkit** oder kompatibel
 - **Optokopf** nach Standard-Schaltung:
   - IR-LED (z.B. SFH487-3) mit 180 Ω Vorwiderstand
