@@ -17,7 +17,7 @@ ESPHome External Component zum Auslesen eines **Allmess Integral-MK UltraMaXX** 
   
  
  
- 
+ <br clear="all">
 
 ## Ausgelesene Daten
 
