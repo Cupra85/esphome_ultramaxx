@@ -5,7 +5,7 @@ ESPHome External Component zum Auslesen eines **Allmess Integral-MK UltraMaXX** 
 **Init/Request (SND_NKE + REQ_UD2)** und Dekodierung typischer Messwerte.
 
 ## Hardware
-<img align="right" width="300" hspace="-20" src="examples/ESP32_S3_Schaltplan.jpg">
+<img align="right" width="300" hspace="-200" src="examples/ESP32_S3_Schaltplan.jpg">
 
 - **ESP32-S3 Devkit** oder kompatibel
 - **Optokopf** nach Standard-Schaltung:
