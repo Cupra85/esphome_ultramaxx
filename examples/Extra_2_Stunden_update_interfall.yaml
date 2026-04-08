@@ -1,0 +1,30 @@
+esphome:
+  name: "ultramaxx"
+  friendly_name: Ultramaxx
+  on_boot:
+    # 1. Messung beim Einschalten nach 20s Verzögerung
+    priority: -10
+    then:
+      - delay: 20s
+      - script.execute: update_ultramaxx
+
+time:
+  - platform: homeassistant
+    id: home_time
+    # 2. Messung alle 2 Stunden zur vollen Stunde
+    on_time:
+      - hours: /2
+        minutes: 0
+        seconds: 0
+        then:
+          - script.execute: update_ultramaxx
+
+script:
+  - id: update_ultramaxx
+    mode: restart
+    then:
+      - component.update: ultramaxx_1
+      - delay: 8s
+      - component.update: ultramaxx_2
+      - delay: 8s
+      - component.update: ultramaxx_3
