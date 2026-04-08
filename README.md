@@ -42,6 +42,7 @@ Nach erfolgreicher Kommunikation erscheinen in Home Assistant folgende Sensoren:
 
 ## Extras
 - Durch die Integration wird der ausgelesene Longframe Hex im Log angeigt.
+- Update Interval nach Neustart und dann alle 2 Stunden zu jeder vollen Stunde die man durch 2 teilen kann.
 - Onboard LED Fehleranzeige.
   Kein Fehler = LED Aus / Low Battery = LED dauerhaft gelb / Temporary Error = LED pulsiert rot / Permanent Error = LED dauerhaft rot.
 - Mehrere Ultramaxx mit einem ESP32 auslesen (bis zu 3 Stück! ESP32 S3 hat 3 Hardware Uart Anschlüsse)
