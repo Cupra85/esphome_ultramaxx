@@ -44,6 +44,7 @@ CONF_OPERATING_TIME = "operating_time"
 CONF_FIRMWARE_VERSION = "firmware_version"
 CONF_SOFTWARE_VERSION = "software_version"
 CONF_ACCESS_COUNTER = "access_counter"
+CONF_STATUS_CODE = "status_code"
 CONF_STATUS_TEXT = "status_text"
 
 
@@ -176,6 +177,17 @@ CONFIG_SCHEMA = (
                     entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                 ),
 
+            # Position 16: numerischer Fehler-/Statuscode als Rohwert.
+            # STATE_CLASS_MEASUREMENT aktiviert Home Assistants
+            # Langzeitstatistik für diesen Sensor.
+            cv.Optional(CONF_STATUS_CODE):
+                sensor.sensor_schema(
+                    accuracy_decimals=0,
+                    state_class=STATE_CLASS_MEASUREMENT,
+                    icon="mdi:alert-circle-outline",
+                    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+                ),
+
             # Position 16: dekodierter Fehlerstatus als Text.
             cv.Optional(CONF_STATUS_TEXT):
                 text_sensor.text_sensor_schema(
@@ -226,6 +238,7 @@ async def to_code(config):
         (CONF_FIRMWARE_VERSION, "set_firmware_version_sensor"),
         (CONF_SOFTWARE_VERSION, "set_software_version_sensor"),
         (CONF_ACCESS_COUNTER, "set_access_counter_sensor"),
+        (CONF_STATUS_CODE, "set_status_code_sensor"),
     ]
 
     for key, setter in mapping:
