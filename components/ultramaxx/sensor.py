@@ -12,7 +12,6 @@ from esphome.const import (
     DEVICE_CLASS_VOLUME_FLOW_RATE,
     STATE_CLASS_MEASUREMENT,
     STATE_CLASS_TOTAL_INCREASING,
-    ENTITY_CATEGORY_DIAGNOSTIC,
     UNIT_CELSIUS,
     UNIT_CUBIC_METER,
     UNIT_KELVIN,
@@ -63,7 +62,6 @@ CONFIG_SCHEMA = (
                 sensor.sensor_schema(
                     accuracy_decimals=0,
                     icon="mdi:barcode-scan",
-                    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                 ),
 
             # Kumulierter Energiezähler.
