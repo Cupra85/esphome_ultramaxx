@@ -185,7 +185,6 @@ CONFIG_SCHEMA = (
                     accuracy_decimals=0,
                     state_class=STATE_CLASS_MEASUREMENT,
                     icon="mdi:alert-circle-outline",
-                    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                 ),
 
             # Position 16: dekodierter Fehlerstatus als Text.
