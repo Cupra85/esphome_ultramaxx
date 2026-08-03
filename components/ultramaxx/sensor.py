@@ -10,7 +10,6 @@ from esphome.const import (
     DEVICE_CLASS_TEMPERATURE_DELTA,
     DEVICE_CLASS_VOLUME,
     DEVICE_CLASS_VOLUME_FLOW_RATE,
-    ENTITY_CATEGORY_DIAGNOSTIC,
     STATE_CLASS_MEASUREMENT,
     STATE_CLASS_TOTAL_INCREASING,
     UNIT_CELSIUS,
@@ -152,7 +151,6 @@ CONFIG_SCHEMA = (
                 sensor.sensor_schema(
                     accuracy_decimals=0,
                     icon="mdi:chip",
-                    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                 ),
 
             # Softwareversion ist ein Diagnosewert und kein Messwert.
@@ -160,7 +158,6 @@ CONFIG_SCHEMA = (
                 sensor.sensor_schema(
                     accuracy_decimals=0,
                     icon="mdi:chip",
-                    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                 ),
 
             # Position 15: Number of reading / Access counter.
@@ -174,7 +171,6 @@ CONFIG_SCHEMA = (
                     accuracy_decimals=0,
                     state_class=STATE_CLASS_MEASUREMENT,
                     icon="mdi:timer-check",
-                    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                 ),
 
             # Position 16: numerischer Fehler-/Statuscode als Rohwert.
@@ -191,14 +187,12 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_STATUS_TEXT):
                 text_sensor.text_sensor_schema(
                     icon="mdi:alert",
-                    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                 ),
 
             # Datum und Uhrzeit aus dem UltraMaXX-Telegramm.
             cv.Optional(CONF_METER_TIME):
                 text_sensor.text_sensor_schema(
                     icon="mdi:timer-cog",
-                    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                 ),
         }
     )
