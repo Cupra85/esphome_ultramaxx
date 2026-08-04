@@ -10,8 +10,9 @@ from esphome.const import (
     DEVICE_CLASS_TEMPERATURE_DELTA,
     DEVICE_CLASS_VOLUME,
     DEVICE_CLASS_VOLUME_FLOW_RATE,
+    ENTITY_CATEGORY_DIAGNOSTIC,
     STATE_CLASS_MEASUREMENT,
-    STATE_CLASS_TOTAL_INCREASING,
+    STATE_CLASS_TOTAL,
     UNIT_CELSIUS,
     UNIT_CUBIC_METER,
     UNIT_KELVIN,
@@ -43,7 +44,6 @@ CONF_OPERATING_TIME = "operating_time"
 CONF_FIRMWARE_VERSION = "firmware_version"
 CONF_SOFTWARE_VERSION = "software_version"
 CONF_ACCESS_COUNTER = "access_counter"
-CONF_STATUS_CODE = "status_code"
 CONF_STATUS_TEXT = "status_text"
 
 
@@ -62,6 +62,7 @@ CONFIG_SCHEMA = (
                 sensor.sensor_schema(
                     accuracy_decimals=0,
                     icon="mdi:barcode-scan",
+                    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                 ),
 
             # Kumulierter Energiezähler.
@@ -70,7 +71,7 @@ CONFIG_SCHEMA = (
                     unit_of_measurement=UNIT_KILOWATT_HOURS,
                     accuracy_decimals=0,
                     device_class=DEVICE_CLASS_ENERGY,
-                    state_class=STATE_CLASS_TOTAL_INCREASING,
+                    state_class=STATE_CLASS_TOTAL,
                     icon="mdi:transmission-tower",
                 ),
 
@@ -80,7 +81,7 @@ CONFIG_SCHEMA = (
                     unit_of_measurement=UNIT_CUBIC_METER,
                     accuracy_decimals=2,
                     device_class=DEVICE_CLASS_VOLUME,
-                    state_class=STATE_CLASS_TOTAL_INCREASING,
+                    state_class=STATE_CLASS_TOTAL,
                     icon="mdi:water",
                 ),
 
@@ -141,7 +142,7 @@ CONFIG_SCHEMA = (
                     unit_of_measurement="d",
                     accuracy_decimals=0,
                     device_class=DEVICE_CLASS_DURATION,
-                    state_class=STATE_CLASS_TOTAL_INCREASING,
+                    state_class=STATE_CLASS_TOTAL,
                     icon="mdi:calendar-start",
                 ),
 
@@ -150,6 +151,7 @@ CONFIG_SCHEMA = (
                 sensor.sensor_schema(
                     accuracy_decimals=0,
                     icon="mdi:chip",
+                    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                 ),
 
             # Softwareversion ist ein Diagnosewert und kein Messwert.
@@ -157,6 +159,7 @@ CONFIG_SCHEMA = (
                 sensor.sensor_schema(
                     accuracy_decimals=0,
                     icon="mdi:chip",
+                    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                 ),
 
             # Position 15: Number of reading / Access counter.
@@ -170,28 +173,21 @@ CONFIG_SCHEMA = (
                     accuracy_decimals=0,
                     state_class=STATE_CLASS_MEASUREMENT,
                     icon="mdi:timer-check",
-                ),
-
-            # Position 16: numerischer Fehler-/Statuscode als Rohwert.
-            # STATE_CLASS_MEASUREMENT aktiviert Home Assistants
-            # Langzeitstatistik für diesen Sensor.
-            cv.Optional(CONF_STATUS_CODE):
-                sensor.sensor_schema(
-                    accuracy_decimals=0,
-                    state_class=STATE_CLASS_MEASUREMENT,
-                    icon="mdi:alert-circle-outline",
+                    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                 ),
 
             # Position 16: dekodierter Fehlerstatus als Text.
             cv.Optional(CONF_STATUS_TEXT):
                 text_sensor.text_sensor_schema(
                     icon="mdi:alert",
+                    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                 ),
 
             # Datum und Uhrzeit aus dem UltraMaXX-Telegramm.
             cv.Optional(CONF_METER_TIME):
                 text_sensor.text_sensor_schema(
                     icon="mdi:timer-cog",
+                    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                 ),
         }
     )
@@ -230,7 +226,6 @@ async def to_code(config):
         (CONF_FIRMWARE_VERSION, "set_firmware_version_sensor"),
         (CONF_SOFTWARE_VERSION, "set_software_version_sensor"),
         (CONF_ACCESS_COUNTER, "set_access_counter_sensor"),
-        (CONF_STATUS_CODE, "set_status_code_sensor"),
     ]
 
     for key, setter in mapping:
