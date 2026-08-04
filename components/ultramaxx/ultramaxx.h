@@ -31,7 +31,6 @@ class UltraMaXXComponent : public PollingComponent, public uart::UARTDevice {
   void set_firmware_version_sensor(sensor::Sensor *s) { firmware_version_ = s; }
   void set_software_version_sensor(sensor::Sensor *s) { software_version_ = s; }
   void set_access_counter_sensor(sensor::Sensor *s) { access_counter_ = s; }
-  void set_status_code_sensor(sensor::Sensor *s) { status_code_ = s; }
 
   void set_meter_time_sensor(text_sensor::TextSensor *s) { meter_time_ = s; }
   void set_status_text_sensor(text_sensor::TextSensor *s) { status_text_ = s; }
@@ -59,7 +58,6 @@ class UltraMaXXComponent : public PollingComponent, public uart::UARTDevice {
   sensor::Sensor *firmware_version_{};
   sensor::Sensor *software_version_{};
   sensor::Sensor *access_counter_{};
-  sensor::Sensor *status_code_{};
 
   text_sensor::TextSensor *meter_time_{};
   text_sensor::TextSensor *status_text_{};
