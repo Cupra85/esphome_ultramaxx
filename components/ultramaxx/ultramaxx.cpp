@@ -11,7 +11,7 @@ namespace esphome {
 namespace ultramaxx {
 
 static const char *const TAG = "ultramaxx";
-static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v10.2";
+static const char *const ULTRAMAXX_VERSION = "UltraMaXX Parser v10.0";
 
 // --------------------------------------------------------------------------------------
 // Decoder
@@ -146,8 +146,7 @@ void UltraMaXXComponent::parse_and_publish_(const std::vector<uint8_t> &buf) {
       uint8_t status = buf[16];
       got_status_ = true;
       std::string st = decode_status_text_(status);
-      ESP_LOGI(TAG, "STATUS parsed: %u (0x%02X) - %s", (unsigned) status, (unsigned) status, st.c_str());
-      if (status_code_) status_code_->publish_state((float) status);
+      ESP_LOGI(TAG, "STATUS parsed: %s", st.c_str());
       if (status_text_) status_text_->publish_state(st);
     }
   }
