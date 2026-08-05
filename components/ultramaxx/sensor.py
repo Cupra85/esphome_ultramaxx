@@ -129,7 +129,7 @@ CONFIG_SCHEMA = (
             # übertragen. Die numerische Differenz ist zu °C identisch.
             cv.Optional(CONF_TEMP_DIFF):
                 sensor.sensor_schema(
-                    unit_of_measurement=UNIT_KELVIN,
+                    unit_of_measurement=UNIT_CELSIUS,
                     accuracy_decimals=2,
                     device_class=DEVICE_CLASS_TEMPERATURE_DELTA,
                     state_class=STATE_CLASS_MEASUREMENT,
