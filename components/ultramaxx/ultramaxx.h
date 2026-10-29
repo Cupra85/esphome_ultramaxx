@@ -34,6 +34,7 @@ class UltraMaXXComponent : public PollingComponent, public uart::UARTDevice {
 
   void set_meter_time_sensor(text_sensor::TextSensor *s) { meter_time_ = s; }
   void set_status_text_sensor(text_sensor::TextSensor *s) { status_text_ = s; }
+  void set_send_nke(bool v) { send_nke_ = v; }
 
  protected:
   enum UMState { UM_IDLE, UM_WAKEUP, UM_WAIT, UM_SEND, UM_RX };
@@ -92,6 +93,7 @@ class UltraMaXXComponent : public PollingComponent, public uart::UARTDevice {
 
   // Per-instance M-Bus FCB toggle for REQ_UD2
   bool fcb_toggle_{false};
+  bool send_nke_{true};
 };
 
 }  // namespace ultramaxx

@@ -45,6 +45,7 @@ CONF_FIRMWARE_VERSION = "firmware_version"
 CONF_SOFTWARE_VERSION = "software_version"
 CONF_ACCESS_COUNTER = "access_counter"
 CONF_STATUS_TEXT = "status_text"
+CONF_SEND_NKE = "send_nke"
 
 
 CONFIG_SCHEMA = (
@@ -55,6 +56,9 @@ CONFIG_SCHEMA = (
             # Bleibt ausdrücklich erhalten.
             # UART_DEVICE_SCHEMA stellt uart_id zusätzlich für UART-Geräte bereit.
             cv.Required(CONF_UART_ID): cv.use_id(uart.UARTComponent),
+
+            # UltraMaXX: true (default). Integral-V UltraLite Pro: false.
+            cv.Optional(CONF_SEND_NKE, default=True): cv.boolean,
 
             # Seriennummer bleibt entsprechend deinem bestehenden Code
             # ein numerischer Sensor.
@@ -212,6 +216,7 @@ async def to_code(config):
 
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
+    cg.add(var.set_send_nke(config[CONF_SEND_NKE]))
 
     mapping = [
         (CONF_SERIAL_NUMBER, "set_serial_number_sensor"),

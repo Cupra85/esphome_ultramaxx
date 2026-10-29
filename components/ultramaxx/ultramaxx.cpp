@@ -40,7 +40,7 @@ uint32_t UltraMaXXComponent::decode_u_le_(const std::vector<uint8_t> &data, size
 
 // CP32 (Type F) = 4 Bytes, byteweise Dekodierung (Minute/Hour/Day/Month/Year + Flags)
 bool UltraMaXXComponent::decode_cp32_datetime_(
-    const std::vector<uint8_t> &data, size_t start, std::string &out) const {
+const std::vector<uint8_t> &data, size_t start, std::string &out) const {
   if (start + 4 > data.size()) return false;
 
   const uint8_t b0 = data[start + 0];
@@ -474,12 +474,13 @@ void UltraMaXXComponent::loop() {
         parse_and_publish_(rx_buffer_);
       } else {
         ESP_LOGW(TAG, "Frame length reached (%u) but last byte != 0x16 (got %02X) -> resync",
-                 (unsigned) rx_buffer_.size(), rx_buffer_.back());
+                  (unsigned) rx_buffer_.size(), rx_buffer_.back());
       }
 
       in_frame_ = false;
       rx_buffer_.clear();
       expected_len_ = 0;
+      state_ = UM_IDLE;
     }
   }
 
@@ -491,7 +492,7 @@ void UltraMaXXComponent::loop() {
     }
     if (in_frame_ && (now - last_rx_ms_ > 2200)) {
       ESP_LOGW(TAG, "RX Timeout (in frame). buf=%u exp=%u", (unsigned) rx_buffer_.size(),
-               (unsigned) expected_len_);
+                (unsigned) expected_len_);
       in_frame_ = false;
       rx_buffer_.clear();
       expected_len_ = 0;
@@ -518,8 +519,14 @@ void UltraMaXXComponent::loop() {
 
   if (state_ == UM_WAIT && now - state_ts_ > 350) {
     ESP_LOGI(TAG, "Switch to 2400 8E1");
+    this->flush();
+    delay(50);
+
     this->parent_->set_parity(uart::UART_CONFIG_PARITY_EVEN);
     this->parent_->load_settings();
+
+    delay(50);
+    this->flush();
 
     // flush input
     uint8_t d;
@@ -530,11 +537,13 @@ void UltraMaXXComponent::loop() {
     expected_len_ = 0;
     last_rx_ms_ = now;
 
-    // SND_NKE (reset/link)
-    const uint8_t reset[] = {0x10, 0x40, 0xFE, 0x3E, 0x16};
-    this->write_array(reset, sizeof(reset));
-    this->flush();
-    ESP_LOGI(TAG, "SND_NKE sent");
+    // SND_NKE (reset/link) — skip for Integral-V UltraLite Pro
+    if (send_nke_) {
+      const uint8_t reset[] = {0x10, 0x40, 0xFE, 0x3E, 0x16};
+      this->write_array(reset, sizeof(reset));
+      this->flush();
+      ESP_LOGI(TAG, "SND_NKE sent");
+    }
 
     state_ = UM_SEND;
     state_ts_ = now;
